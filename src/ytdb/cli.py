@@ -92,5 +92,21 @@ def sync(account: str, max_videos: int | None, languages: tuple[str, ...], force
         click.echo(f"Errors: {result.errors}")
 
 
+@cli.command("serve")
+@click.option("--host", default="0.0.0.0", show_default=True)
+@click.option("--port", default=8000, show_default=True, type=int)
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development.")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Start the web UI and API server."""
+    import uvicorn
+
+    uvicorn.run(
+        "ytdb.api.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
 if __name__ == "__main__":
     cli()

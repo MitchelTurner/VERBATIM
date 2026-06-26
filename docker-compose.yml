@@ -16,5 +16,16 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    container_name: ytdb-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://ytdb:ytdb@postgres:5432/ytdb
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
