@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from ytdb.db.engine import normalize_database_url
+
 load_dotenv()
 
 
@@ -13,6 +15,8 @@ class Settings:
     database_url: str
     host: str
     port: int
+    db_init_retries: int
+    db_init_retry_delay: float
     youtube_api_key: str | None = None
 
 
@@ -24,8 +28,10 @@ def get_settings() -> Settings:
         )
 
     return Settings(
-        database_url=database_url,
+        database_url=normalize_database_url(database_url),
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8000")),
+        db_init_retries=int(os.getenv("DB_INIT_RETRIES", "30")),
+        db_init_retry_delay=float(os.getenv("DB_INIT_RETRY_DELAY", "2")),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
     )

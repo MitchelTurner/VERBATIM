@@ -10,8 +10,14 @@ services:
         fromDatabase:
           name: ytdb-db
           property: connectionString
+      - key: HOST
+        value: 0.0.0.0
       - key: DB_WAIT
         value: "false"
+      - key: DB_SSLMODE
+        value: require
+      - key: DB_INIT_RETRIES
+        value: "30"
 
 databases:
   - name: ytdb-db

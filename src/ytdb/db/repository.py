@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ytdb.db.engine import create_db_engine
 from ytdb.db.models import Base, Channel, Transcript, Video
 from ytdb.youtube.transcripts import TranscriptData
 from ytdb.youtube.channel import ChannelInfo, VideoInfo
@@ -12,7 +13,7 @@ from ytdb.youtube.channel import ChannelInfo, VideoInfo
 
 class TranscriptRepository:
     def __init__(self, database_url: str) -> None:
-        self.engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine = create_db_engine(database_url)
         self._session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def init_db(self) -> None:

@@ -6,4 +6,7 @@ def test_health_endpoint():
     client = TestClient(create_app())
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "ready" in body
+

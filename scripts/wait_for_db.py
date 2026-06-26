@@ -9,6 +9,8 @@ import time
 
 import psycopg2
 
+from ytdb.db.engine import get_connect_args, normalize_database_url
+
 
 def main() -> int:
     database_url = os.getenv("DATABASE_URL")
@@ -19,12 +21,14 @@ def main() -> int:
     if not _should_wait(database_url):
         return 0
 
+    database_url = normalize_database_url(database_url)
+    connect_args = get_connect_args(database_url)
     timeout = int(os.getenv("DB_WAIT_TIMEOUT", "60"))
     deadline = time.time() + timeout
 
     while time.time() < deadline:
         try:
-            conn = psycopg2.connect(database_url)
+            conn = psycopg2.connect(database_url, **connect_args)
             conn.close()
             print("PostgreSQL is ready.")
             return 0
@@ -37,9 +41,10 @@ def main() -> int:
 
 
 def _should_wait(database_url: str) -> bool:
-    if os.getenv("DB_WAIT", "auto").lower() == "false":
+    mode = os.getenv("DB_WAIT", "auto").lower()
+    if mode == "false":
         return False
-    if os.getenv("DB_WAIT", "auto").lower() == "true":
+    if mode == "true":
         return True
     return "@postgres:" in database_url or "@localhost:" in database_url
 

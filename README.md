@@ -169,13 +169,18 @@ Common causes of `status: exited`:
 3. **Wrong port** — cloud platforms set `PORT`; the entrypoint reads it automatically
 4. **Stale Docker image** — rebuild with `docker compose up -d --build`
 
-Check logs:
+### Application failed to respond (Render / cloud)
 
-```bash
-docker compose logs api
-```
+1. Set **`DATABASE_URL`** to your managed PostgreSQL connection string
+2. Set **`DB_SSLMODE=require`** for Render, Railway, Neon, and similar hosts
+3. Use start command **`/app/scripts/entrypoint.sh`** (Docker) or:
+   ```
+   uvicorn ytdb.api.app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
+   ```
+4. Health check path: **`/health`** (returns 200 while the DB is still connecting)
+5. On Render, deploy with the included `render.yaml` blueprint or link a Postgres database manually
 
-Health check: `GET /health` should return `{"status":"ok"}`.
+Check deploy logs for `Starting ytdb API on 0.0.0.0:<port>`.
 
 ## License
 
