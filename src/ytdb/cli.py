@@ -85,12 +85,16 @@ def sync(account: str, max_videos: int | None, languages: tuple[str, ...], force
 
 
 @click.command("serve")
-@click.option("--host", default="0.0.0.0", show_default=True)
-@click.option("--port", default=8000, show_default=True, type=int)
+@click.option("--host", default=None, help="Bind host (defaults to HOST env or 0.0.0.0).")
+@click.option("--port", default=None, type=int, help="Bind port (defaults to PORT env or 8000).")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development.")
-def serve(host: str, port: int, reload: bool) -> None:
+def serve(host: str | None, port: int | None, reload: bool) -> None:
     """Start the web UI and API server."""
     import uvicorn
+
+    settings = get_settings()
+    bind_host = host or settings.host
+    bind_port = port or settings.port
 
     logging.basicConfig(
         level=logging.INFO,
@@ -100,8 +104,8 @@ def serve(host: str, port: int, reload: bool) -> None:
 
     uvicorn.run(
         "ytdb.api.app:app",
-        host=host,
-        port=port,
+        host=bind_host,
+        port=bind_port,
         reload=reload,
         reload_dirs=["src/ytdb/api", "frontend/dist"] if reload else None,
     )

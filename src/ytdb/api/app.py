@@ -7,6 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ytdb.api.routes import router
@@ -30,9 +31,14 @@ def start_scheduler() -> BackgroundScheduler:
 async def lifespan(app: FastAPI):
     global _scheduler
     settings = get_settings()
-    TranscriptRepository(settings.database_url).init_db()
+    try:
+        TranscriptRepository(settings.database_url).init_db()
+    except Exception:
+        logger.exception("Failed to initialize database tables")
+        raise
+
     _scheduler = start_scheduler()
-    logger.info("Scheduler started")
+    logger.info("Scheduler started on %s:%s", settings.host, settings.port)
     yield
     if _scheduler:
         _scheduler.shutdown(wait=False)
@@ -47,6 +53,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.get("/health")
+    def health() -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
     app.include_router(router, prefix="/api")
 
     frontend_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"

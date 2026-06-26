@@ -11,6 +11,8 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     database_url: str
+    host: str
+    port: int
     youtube_api_key: str | None = None
 
 
@@ -23,5 +25,7 @@ def get_settings() -> Settings:
 
     return Settings(
         database_url=database_url,
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8000")),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
     )

@@ -150,6 +150,33 @@ pytest
 - YouTube may rate-limit heavy usage; use `--max-videos` while testing.
 - Transcript availability depends on the uploader and YouTube's caption settings.
 
+## Troubleshooting
+
+### Container exits immediately
+
+The API needs a **start command** and a **PostgreSQL `DATABASE_URL`**.
+
+| Environment | Start command |
+|-------------|---------------|
+| Docker Compose | `docker compose up -d --build` (uses `scripts/entrypoint.sh` automatically) |
+| Cloud (Render, Railway, etc.) | Set start command to `/app/scripts/entrypoint.sh` or `uvicorn ytdb.api.app:app --host 0.0.0.0 --port $PORT` |
+| Local | `python -m ytdb serve` |
+
+Common causes of `status: exited`:
+
+1. **Missing `DATABASE_URL`** — provision PostgreSQL and set the env var
+2. **Wrong start command** — do not use bare `python -m ytdb` (it exits immediately)
+3. **Wrong port** — cloud platforms set `PORT`; the entrypoint reads it automatically
+4. **Stale Docker image** — rebuild with `docker compose up -d --build`
+
+Check logs:
+
+```bash
+docker compose logs api
+```
+
+Health check: `GET /health` should return `{"status":"ok"}`.
+
 ## License
 
 MIT

@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: ytdb-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ytdb
       POSTGRES_PASSWORD: ytdb
@@ -19,14 +20,23 @@ services:
   api:
     build: .
     container_name: ytdb-api
-    command: ["uvicorn", "ytdb.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://ytdb:ytdb@postgres:5432/ytdb
+      HOST: 0.0.0.0
+      PORT: 8000
+      DB_WAIT: "true"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:
