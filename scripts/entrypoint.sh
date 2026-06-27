@@ -13,7 +13,7 @@ set -eu
 PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 
-echo "Starting ytdb API on ${HOST}:${PORT}"
+echo "Starting VERBATIM API on ${HOST}:${PORT}"
 
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "ERROR: DATABASE_URL is required. Set it to your PostgreSQL connection string." >&2

@@ -142,12 +142,12 @@ ALL_COMMANDS = (init_db, list_channels, sync, serve)
 @click.group(invoke_without_command=True, no_args_is_help=False)
 @click.pass_context
 def cli(ctx: click.Context) -> None:
-    """Fetch YouTube transcripts from a channel and store them in PostgreSQL."""
+    """VERBATIM — fetch YouTube transcripts and store them in PostgreSQL."""
     if ctx.invoked_subcommand is None:
-        click.echo("No command specified.")
+        click.echo("VERBATIM — no command specified.")
         click.echo()
         click.echo("Try one of:")
-        click.echo("  python -m ytdb serve     Start the web UI")
+        click.echo("  python -m ytdb serve     Start the VERBATIM dashboard")
         click.echo("  python -m ytdb sync @channel")
         click.echo("  python -m ytdb init-db")
         click.echo()

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ytdb"
 version = "0.1.0"
-description = "Fetch YouTube channel transcripts and store them in PostgreSQL"
+description = "VERBATIM — sync YouTube channel transcripts and store them in PostgreSQL"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

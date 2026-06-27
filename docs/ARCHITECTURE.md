@@ -1,6 +1,8 @@
 # Architecture
 
-This document explains how the main pieces of **ytdb** fit together. Read this if you want to modify the sync logic, add API endpoints, or understand why certain design choices were made.
+This document explains how the main pieces of **VERBATIM** fit together. Read this if you want to modify the sync logic, add API endpoints, or understand why certain design choices were made.
+
+The Python package is still named `ytdb` internally; user-facing branding is **VERBATIM**.
 
 ## High-level flow
 

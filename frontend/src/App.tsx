@@ -170,9 +170,11 @@ export default function App() {
 
       <header className="hero">
         <div>
-          <h1>YouTube Transcript Sync</h1>
+          <p className="brand-kicker">YouTube transcript sync</p>
+          <h1 className="brand-title">VERBATIM</h1>
           <p>
-            Schedule channel syncs, browse stored transcripts, and keep live streams up to date.
+            Capture channel captions word for word — schedule syncs, search stored
+            transcripts, and keep live streams up to date.
           </p>
         </div>
       </header>

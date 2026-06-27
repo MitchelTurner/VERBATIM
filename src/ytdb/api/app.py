@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="YouTube Transcript Sync", lifespan=lifespan)
+    app = FastAPI(title="VERBATIM", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

@@ -1,10 +1,10 @@
-# YouTube Transcript to Database
+# VERBATIM
 
 [![CI](https://github.com/TheMitchyBoy/Youtube-Transcript-to-Database/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMitchyBoy/Youtube-Transcript-to-Database/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](#license)
 
-Sync YouTube channel transcripts into PostgreSQL — with a web dashboard to schedule jobs, browse stored captions, and keep live streams up to date.
+**VERBATIM** syncs YouTube channel transcripts into PostgreSQL — with a web dashboard to schedule jobs, browse stored captions, and keep live streams up to date.
 
 No YouTube Data API key is required. Channel discovery uses **yt-dlp**; caption download uses **youtube-transcript-api**.
 
@@ -22,10 +22,10 @@ No YouTube Data API key is required. Channel discovery uses **yt-dlp**; caption 
 flowchart LR
     subgraph inputs [Inputs]
         CLI[ytdb CLI]
-        UI[Web dashboard]
+        UI[VERBATIM dashboard]
     end
 
-    subgraph core [ytdb core]
+    subgraph core [VERBATIM core]
         API[FastAPI + scheduler]
         Sync[SyncService]
         YTDLP[yt-dlp channel discovery]
@@ -262,7 +262,7 @@ cd frontend && npm run build
 Expected deploy logs:
 
 ```
-Starting ytdb API on 0.0.0.0:<port>
+Starting VERBATIM API on 0.0.0.0:<port>
 Application process started; database init running in background
 Database initialized and scheduler started
 ```

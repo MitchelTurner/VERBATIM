@@ -12,6 +12,24 @@
   margin-bottom: 2rem;
 }
 
+.hero h1.brand-title,
+.hero .brand-title {
+  margin: 0 0 0.35rem;
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.brand-kicker {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .hero h1 {
   margin: 0 0 0.35rem;
   font-size: 2rem;

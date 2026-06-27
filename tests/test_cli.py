@@ -15,7 +15,7 @@ def test_cli_without_command_shows_short_message():
     result = runner.invoke(cli_module.cli, [])
 
     assert result.exit_code == 2
-    assert "No command specified" in result.output
+    assert "no command specified" in result.output.lower()
     assert "Commands:" not in result.output
     assert "Usage:" not in result.output
 

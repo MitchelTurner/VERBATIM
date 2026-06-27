@@ -1,3 +1,3 @@
-"""YouTube transcript sync: fetch channel transcripts and store in PostgreSQL."""
+"""VERBATIM — YouTube transcript sync for PostgreSQL."""
 
 __version__ = "0.1.0"
