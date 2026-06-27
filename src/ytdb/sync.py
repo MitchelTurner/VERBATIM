@@ -1,3 +1,9 @@
+"""Core sync orchestration.
+
+``SyncService`` is the single place that ties together channel discovery
+(yt-dlp), caption download (youtube-transcript-api), and database upserts.
+Both the CLI ``sync`` command and scheduled web jobs call into this module.
+"""
 from __future__ import annotations
 
 import logging
@@ -21,6 +27,8 @@ class SyncResult:
 
 
 class SyncService:
+    """Fetch and persist transcripts for one YouTube channel."""
+
     def __init__(
         self,
         repository: TranscriptRepository | None = None,
@@ -99,6 +107,8 @@ class SyncService:
     ) -> bool:
         video = self.repository.upsert_video(session, channel, video_info)
 
+        # Live broadcasts are never skipped — captions grow as the stream runs,
+        # so we re-fetch on every sync while is_live is True.
         should_skip = (
             skip_existing
             and not video_info.is_live

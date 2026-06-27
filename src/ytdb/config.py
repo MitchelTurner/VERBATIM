@@ -1,3 +1,8 @@
+"""Application settings loaded from environment variables.
+
+Copy ``.env.example`` to ``.env`` for local development. Cloud platforms
+(Railway, Render) inject ``DATABASE_URL`` and ``PORT`` automatically.
+"""
 from __future__ import annotations
 
 import os

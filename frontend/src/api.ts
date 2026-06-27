@@ -1,3 +1,7 @@
+/**
+ * Typed HTTP client for the FastAPI backend (/api/*).
+ * Throws Error with the server detail message on non-2xx responses.
+ */
 import type {
   ChannelSummary,
   FrequencyOption,

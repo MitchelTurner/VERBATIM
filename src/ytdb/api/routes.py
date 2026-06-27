@@ -1,3 +1,8 @@
+"""REST API routes for the web dashboard.
+
+All routes are mounted under ``/api`` by app.py. Job mutations validate
+frequency strings against FREQUENCY_CHOICES in schemas.py.
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException

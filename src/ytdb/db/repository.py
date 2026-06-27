@@ -1,3 +1,8 @@
+"""Database access layer for channels, videos, and transcripts.
+
+All write paths use upsert semantics keyed on YouTube IDs so repeated syncs
+are safe. Search helpers power the web UI transcript browser.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -13,11 +18,14 @@ from ytdb.youtube.channel import ChannelInfo, VideoInfo
 
 
 class TranscriptRepository:
+    """CRUD and upsert operations for transcript data."""
+
     def __init__(self, database_url: str) -> None:
         self.engine = create_db_engine(database_url)
         self._session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def init_db(self) -> None:
+        """Create tables and apply any lightweight additive migrations."""
         Base.metadata.create_all(self.engine)
         run_migrations(self.engine.url.render_as_string(hide_password=False))
 
@@ -126,6 +134,7 @@ class TranscriptRepository:
         channel_id: int | None = None,
         limit: int = 50,
     ) -> list[tuple[Transcript, Video, Channel]]:
+        """Return transcripts newest-first, optionally filtered by channel or text."""
         query = (
             select(Transcript, Video, Channel)
             .join(Video, Transcript.video_id == Video.id)

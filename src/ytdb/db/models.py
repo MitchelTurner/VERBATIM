@@ -1,3 +1,12 @@
+"""SQLAlchemy ORM models for the transcript database.
+
+Relationship overview:
+    Channel 1──* Video 1──* Transcript
+    SyncJob 1──* SyncRun
+
+``content_type`` on Video is one of: video, stream, live.
+``is_live`` is True while a broadcast is still in progress.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -103,6 +112,7 @@ class SyncJob(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    # Deleting a job removes its run history (FK ondelete=CASCADE as well).
     runs: Mapped[list[SyncRun]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )

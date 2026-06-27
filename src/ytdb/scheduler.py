@@ -1,7 +1,14 @@
+"""Sync frequency helpers.
+
+Maps job frequency strings (stored on ``sync_jobs.frequency``) to human-readable
+labels and computes ``next_run_at`` timestamps. ``manual`` means the job only
+runs when triggered explicitly (CLI or "Run now" button).
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+# Minutes between automatic runs; None = manual-only (no next_run_at).
 FREQUENCY_OPTIONS: dict[str, int | None] = {
     "manual": None,
     "15m": 15,

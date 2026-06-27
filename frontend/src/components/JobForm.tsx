@@ -1,6 +1,7 @@
 import { FormEvent } from "react";
 import type { FrequencyOption, SyncJobInput } from "../types";
 
+/** One-click presets that pre-fill the job form for common use cases. */
 const TEMPLATES: { label: string; values: Partial<SyncJobInput> }[] = [
   {
     label: "Daily uploads",

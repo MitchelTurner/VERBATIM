@@ -1,3 +1,9 @@
+/**
+ * Root dashboard: sync job management and transcript browser.
+ *
+ * Data refreshes every 10s so job status updates without a manual reload.
+ * API calls go through api.ts; in dev, Vite proxies /api to port 8000.
+ */
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { JobCard } from "./components/JobCard";

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { ChannelSummary, TranscriptDetail, TranscriptSummary } from "../types";
 
+/** Search and read stored transcripts from the database. */
 interface Props {
   channels: ChannelSummary[];
 }

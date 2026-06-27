@@ -1,4 +1,13 @@
 #!/bin/sh
+# Production entrypoint for Docker and Railway.
+#
+# Required env:
+#   DATABASE_URL  PostgreSQL connection string
+#
+# Optional env:
+#   PORT          Listen port (default 8000; Railway sets this automatically)
+#   HOST          Bind address (default 0.0.0.0)
+#   DB_WAIT       Set to "false" to skip waiting for Postgres on startup
 set -eu
 
 PORT="${PORT:-8000}"
@@ -11,6 +20,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
+# On Railway, Postgres may still be provisioning when the web service starts.
 if [ "${DB_WAIT:-auto}" != "false" ]; then
   python /app/scripts/wait_for_db.py || true
 fi

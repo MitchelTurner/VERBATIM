@@ -1,3 +1,9 @@
+"""YouTube channel and video discovery via yt-dlp.
+
+We scrape channel tab playlists (/videos, /streams, /live) instead of using
+the YouTube Data API, so no API key is required. yt-dlp handles handle/URL
+normalization and returns metadata for each playlist entry.
+"""
 from __future__ import annotations
 
 import re
@@ -32,6 +38,7 @@ class VideoInfo:
 
 
 def normalize_channel_url(account: str) -> str:
+    """Turn a handle, channel ID, or partial URL into a canonical YouTube URL."""
     account = account.strip()
     if account.startswith("http://") or account.startswith("https://"):
         return account.rstrip("/")
@@ -87,6 +94,11 @@ class ChannelClient:
         include_streams: bool = True,
         include_live: bool = True,
     ) -> list[VideoInfo]:
+        """Collect videos from enabled channel tabs, de-duplicated by video ID.
+
+        Live items are listed first. When the same video appears in multiple
+        tabs, the live variant wins so ``is_live`` stays accurate.
+        """
         base_url = normalize_channel_url(account)
         collected: dict[str, VideoInfo] = {}
 

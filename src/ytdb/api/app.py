@@ -1,3 +1,11 @@
+"""FastAPI application factory and lifecycle.
+
+Startup is split into two phases so cloud health checks pass quickly:
+  1. Uvicorn binds and serves /health immediately
+  2. A background task initializes the DB and starts APScheduler
+
+In production the built React app (frontend/dist) is mounted at /.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -21,11 +29,12 @@ from ytdb.jobs.runner import poll_due_jobs
 logger = logging.getLogger(__name__)
 
 _scheduler: BackgroundScheduler | None = None
-_db_ready = Event()
+_db_ready = Event()  # Set once DB init + scheduler succeed; exposed via /health
 _init_task: asyncio.Task | None = None
 
 
 def start_scheduler() -> BackgroundScheduler:
+    """Poll for due sync jobs once per minute."""
     scheduler = BackgroundScheduler()
     scheduler.add_job(poll_due_jobs, "interval", minutes=1, id="poll_sync_jobs")
     scheduler.start()
@@ -33,6 +42,7 @@ def start_scheduler() -> BackgroundScheduler:
 
 
 async def _initialize() -> None:
+    """Retry DB connection until Postgres is reachable (common on Railway)."""
     global _scheduler
 
     settings = get_settings()

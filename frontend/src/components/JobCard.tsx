@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import type { SyncJob, SyncRun } from "../types";
 
+/** Single sync job card with expandable run history (lazy-loaded on first expand). */
 interface Props {
   job: SyncJob;
   frequencyMap: Record<string, string>;

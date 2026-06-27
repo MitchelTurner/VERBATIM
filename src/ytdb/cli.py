@@ -1,3 +1,12 @@
+"""Command-line interface for ytdb.
+
+Entry point: ``ytdb`` (see pyproject.toml [project.scripts]).
+
+Typical usage:
+    ytdb init-db
+    ytdb sync @channel --max-videos 25
+    ytdb serve --reload
+"""
 from __future__ import annotations
 
 import logging
@@ -125,6 +134,8 @@ def serve(host: str | None, port: int | None, reload: bool) -> None:
     )
 
 
+# Registered once here so importing cli.py multiple times (e.g. in tests)
+# does not duplicate subcommands on the Click group.
 ALL_COMMANDS = (init_db, list_channels, sync, serve)
 
 

@@ -1,3 +1,9 @@
+"""Background execution of scheduled and on-demand sync jobs.
+
+``poll_due_jobs`` is registered with APScheduler (see api/app.py) and runs
+every minute. ``run_sync_job`` wraps ``SyncService`` and records results in
+``sync_runs`` so the web UI can show history.
+"""
 from __future__ import annotations
 
 import logging
@@ -10,6 +16,7 @@ from ytdb.db.repository import TranscriptRepository
 from ytdb.sync import SyncService
 
 logger = logging.getLogger(__name__)
+# Prevent overlapping runs when the scheduler and "Run now" fire close together.
 _run_lock = threading.Lock()
 
 

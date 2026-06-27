@@ -1,3 +1,8 @@
+"""Download video captions via youtube-transcript-api.
+
+Tries ``preferred_languages`` in order and returns the first match.
+Returns None when captions are disabled or the video is unavailable.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,102 +1,205 @@
 # YouTube Transcript to Database
 
-Fetch transcripts from every video on a selected YouTube channel and store them in PostgreSQL.
+[![CI](https://github.com/TheMitchyBoy/Youtube-Transcript-to-Database/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMitchyBoy/Youtube-Transcript-to-Database/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](#license)
+
+Sync YouTube channel transcripts into PostgreSQL — with a web dashboard to schedule jobs, browse stored captions, and keep live streams up to date.
+
+No YouTube Data API key is required. Channel discovery uses **yt-dlp**; caption download uses **youtube-transcript-api**.
+
+---
+
+## What it does
+
+1. **Discover** videos, past live streams, and currently broadcasting live streams on a channel
+2. **Download** captions (manual or auto-generated) in your preferred languages
+3. **Store** channels, videos, and full transcript text in PostgreSQL
+4. **Schedule** recurring sync jobs from the web UI or run one-off syncs from the CLI
+5. **Browse** stored transcripts with full-text search in the dashboard
+
+```mermaid
+flowchart LR
+    subgraph inputs [Inputs]
+        CLI[ytdb CLI]
+        UI[Web dashboard]
+    end
+
+    subgraph core [ytdb core]
+        API[FastAPI + scheduler]
+        Sync[SyncService]
+        YTDLP[yt-dlp channel discovery]
+        YTT[youtube-transcript-api]
+    end
+
+    DB[(PostgreSQL)]
+
+    CLI --> Sync
+    UI --> API --> Sync
+    Sync --> YTDLP
+    Sync --> YTT
+    Sync --> DB
+    API --> DB
+```
+
+---
 
 ## Features
 
-- Accept a channel by URL, `@handle`, or channel ID (`UC...`)
-- Discover all videos on the channel via `yt-dlp` (no YouTube API key required)
-- Download captions with `youtube-transcript-api` (manual or auto-generated)
-- Persist channels, videos, and transcripts in PostgreSQL
-- Skip videos that already have transcripts unless `--force` is used
-- Idempotent upserts — safe to re-run
-- **Web UI** to configure channels, sync frequency, languages, and run jobs on demand
+| Area | Capabilities |
+|------|--------------|
+| **Channel input** | URL, `@handle`, or channel ID (`UC...`) |
+| **Content types** | Regular uploads, past live streams, currently live broadcasts |
+| **Languages** | Comma-separated preference list; first available match wins |
+| **Scheduling** | Manual, 15m, 30m, hourly, 6h, 12h, daily, weekly |
+| **Idempotent** | Safe to re-run; skips existing transcripts unless force-refresh is on |
+| **Live streams** | Re-fetches captions on every sync while still broadcasting |
+| **Web UI** | Stats dashboard, job management, transcript search & viewer |
+| **CLI** | `init-db`, `sync`, `list-channels`, `serve` |
+
+---
 
 ## Quick start (web UI)
 
-### 1. Start PostgreSQL and the API
+### Docker (recommended)
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-Open http://localhost:8000 to use the settings dashboard.
+Open **http://localhost:8000**
 
-> **Note:** Run `python -m ytdb serve` to start the app — not bare `python -m ytdb`.
-> If you see repeated help text in logs, your start command is missing a subcommand.
-
-### 2. Or run locally for development
+### Local development
 
 ```bash
 pip install -e .
 cp .env.example .env
 ytdb init-db
 
-# Terminal 1: API + scheduler
+# Terminal 1 — API + background scheduler
 ytdb serve --reload
 
-# Terminal 2: frontend dev server
+# Terminal 2 — frontend dev server (hot reload)
 cd frontend && npm install && npm run dev
 ```
 
-The Vite dev server runs at http://localhost:5173 and proxies API calls to port 8000.
+- API: http://localhost:8000
+- Vite dev UI: http://localhost:5173 (proxies `/api` to port 8000)
+
+> **Important:** Always run `ytdb serve` (or the Docker entrypoint) — not bare `python -m ytdb`.
+> Without a subcommand the process prints help and exits.
+
+---
+
+## Web dashboard guide
+
+### Stats bar
+
+Shows live counts for transcripts, videos, channels, and sync jobs. Refreshes every 10 seconds.
+
+### Sync jobs tab
+
+| Control | What it does |
+|---------|--------------|
+| **Quick-start templates** | Pre-fill settings for daily uploads, live-only syncs, or one-off manual runs |
+| **Channel** | YouTube URL, `@handle`, or `UC...` channel ID |
+| **Sync frequency** | How often the background scheduler runs the job automatically |
+| **Max items** | Cap how many videos/streams are checked per run |
+| **Content types** | Toggle live broadcast, past streams, and regular uploads |
+| **Enabled** | Turn scheduled runs on/off (manual "Run now" still works) |
+| **Force refresh** | Re-download transcripts even if already stored |
+| **Run now** | Trigger an immediate background sync |
+| **History** | Expand to see past run results (saved/skipped/errors) |
+
+### Transcripts tab
+
+- Search by video title, channel name, or transcript text
+- Filter by channel
+- Click a result to read the full transcript
+- Link opens the video on YouTube
+
+---
 
 ## Quick start (CLI)
 
-### 1. Start PostgreSQL
-
 ```bash
-docker compose up -d
-```
-
-### 2. Install dependencies
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
+docker compose up -d          # start PostgreSQL
 pip install -e .
 cp .env.example .env
-```
-
-### 3. Initialize the database
-
-```bash
 ytdb init-db
-```
 
-### 4. Sync a channel
-
-```bash
-# By @handle
+# Sync up to 10 recent videos from a channel
 ytdb sync @mkbhd --max-videos 10
-
-# By channel URL
-ytdb sync "https://www.youtube.com/@mkbhd" --language en
 
 # Re-fetch existing transcripts
 ytdb sync @mkbhd --force
-```
 
-### 5. List synced channels
-
-```bash
+# List channels already in the database
 ytdb list-channels
 ```
+
+### CLI reference
+
+```
+ytdb init-db
+ytdb list-channels
+ytdb sync ACCOUNT [--max-videos N] [--language CODE]... [--force]
+                   [--videos/--no-videos] [--streams/--no-streams] [--live/--no-live]
+ytdb serve [--host HOST] [--port PORT] [--reload]
+```
+
+`ACCOUNT` accepts:
+
+- `https://www.youtube.com/@handle`
+- `@handle` or `handle`
+- `UCxxxxxxxxxxxxxxxxxxxxxx` (24-character channel ID)
+
+---
+
+## API reference
+
+All endpoints are prefixed with `/api`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness probe (`ready` indicates DB + scheduler are up) |
+| `GET` | `/api/stats` | Dashboard counts |
+| `GET` | `/api/channels` | Synced channels with transcript counts |
+| `GET` | `/api/transcripts` | Search transcripts (`?search=`, `?channel_id=`, `?limit=`) |
+| `GET` | `/api/transcripts/{id}` | Full transcript content |
+| `GET` | `/api/frequencies` | Valid sync frequency options |
+| `GET` | `/api/jobs` | List sync jobs |
+| `POST` | `/api/jobs` | Create a sync job |
+| `PATCH` | `/api/jobs/{id}` | Update a sync job |
+| `DELETE` | `/api/jobs/{id}` | Delete a sync job |
+| `POST` | `/api/jobs/{id}/run` | Trigger a background sync |
+| `GET` | `/api/jobs/{id}/runs` | Run history for a job |
+
+---
 
 ## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://ytdb:ytdb@localhost:5432/ytdb` |
-| `YOUTUBE_API_KEY` | Optional; not required for core sync | — |
+| `HOST` | API bind host | `0.0.0.0` |
+| `PORT` | API bind port | `8000` |
+| `DB_SSLMODE` | Override SSL mode (`require`, `disable`, etc.) | Auto-detected from hostname |
+| `DB_INIT_RETRIES` | DB connection attempts on startup | `30` |
+| `DB_INIT_RETRY_DELAY` | Seconds between startup retries | `2` |
+| `YOUTUBE_API_KEY` | Optional; **not used** by core sync | — |
+
+---
 
 ## Database schema
 
-- **channels** — YouTube channel metadata
-- **videos** — Videos belonging to a channel
-- **transcripts** — Full transcript text per video and language
-- **sync_jobs** — Scheduled sync configuration (channel, frequency, languages)
-- **sync_runs** — History of each sync execution
+| Table | Purpose |
+|-------|---------|
+| `channels` | YouTube channel metadata |
+| `videos` | Videos and streams belonging to a channel |
+| `transcripts` | Full caption text per video + language |
+| `sync_jobs` | Scheduled sync configuration |
+| `sync_runs` | Per-execution history and stats |
 
 Example query:
 
@@ -109,78 +212,54 @@ ORDER BY t.fetched_at DESC
 LIMIT 20;
 ```
 
-## CLI reference
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deeper walkthrough of how the code is organized.
+
+---
+
+## Project structure
 
 ```
-ytdb init-db
-ytdb list-channels
-ytdb sync ACCOUNT [--max-videos N] [--language CODE]... [--force]
-ytdb serve [--host 0.0.0.0] [--port 8000] [--reload]
+├── src/ytdb/
+│   ├── cli.py              # Click CLI entry point
+│   ├── sync.py             # Core sync orchestration
+│   ├── scheduler.py        # Frequency → next-run calculations
+│   ├── api/                # FastAPI app, routes, schemas
+│   ├── db/                 # SQLAlchemy models, repository, migrations
+│   ├── jobs/               # Background sync job runner
+│   └── youtube/            # yt-dlp channel client + transcript fetcher
+├── frontend/               # React + Vite dashboard
+├── scripts/entrypoint.sh   # Docker / Railway start script
+├── docker-compose.yml
+├── railway.toml
+└── tests/
 ```
 
-## Web UI settings
-
-| Setting | Description |
-|---------|-------------|
-| Channel | YouTube URL, `@handle`, or channel ID |
-| Sync frequency | Manual, 15m, 30m, hourly, 6h, 12h, daily, weekly |
-| Max videos | Cap how many recent videos are checked each run |
-| Languages | Preferred caption languages (comma-separated) |
-| Content types | Currently live, past live streams, regular videos |
-| Enabled | Turn scheduled syncs on/off |
-| Force refresh | Re-download transcripts even if already stored |
-
-
-`ACCOUNT` can be:
-
-- `https://www.youtube.com/@handle`
-- `@handle` or `handle`
-- `UCxxxxxxxxxxxxxxxxxxxxxx` (24-character channel ID)
+---
 
 ## Development
 
 ```bash
-pip install -e .
-pip install pytest
+pip install -e ".[dev]"
 pytest
+cd frontend && npm run build
 ```
 
-## Limitations
-
-- Only videos with available captions are stored (many channels disable captions on some uploads).
-- YouTube may rate-limit heavy usage; use `--max-videos` while testing.
-- Transcript availability depends on the uploader and YouTube's caption settings.
+---
 
 ## Deploy on Railway
 
-### 1. Create the project
-
 1. [Railway](https://railway.com) → **New Project** → **Deploy from GitHub repo**
-2. Select this repository — Railway detects the `Dockerfile` automatically
-
-### 2. Add PostgreSQL
-
-1. In your project, click **+ New** → **Database** → **PostgreSQL**
-2. Open your **web service** → **Variables**
-3. Add a reference variable:
-   - Name: `DATABASE_URL`
-   - Value: `${{Postgres.DATABASE_URL}}` (use Railway's variable reference UI)
-
-### 3. Configure the web service
-
-Railway reads `railway.toml` automatically. You should have:
+2. Add **PostgreSQL** → link `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
+3. Railway reads `railway.toml` automatically:
 
 | Setting | Value |
 |---------|-------|
 | Start command | `/app/scripts/entrypoint.sh` |
 | Health check | `/health` |
-| `HOST` | `0.0.0.0` (optional — entrypoint default) |
 
-Do **not** set `DB_SSLMODE` when using Railway's private Postgres URL (`*.railway.internal`). SSL is only needed for public proxy URLs.
+4. Push to GitHub or click **Deploy**
 
-### 4. Deploy
-
-Push to GitHub or click **Deploy** in Railway. In the deploy logs you should see:
+Expected deploy logs:
 
 ```
 Starting ytdb API on 0.0.0.0:<port>
@@ -188,50 +267,50 @@ Application process started; database init running in background
 Database initialized and scheduler started
 ```
 
-Open the generated `*.railway.app` URL — the web UI should load at `/`.
+> Do **not** set `DB_SSLMODE` for Railway private Postgres URLs (`*.railway.internal`).
+> `render.yaml` is for Render only; Railway uses `railway.toml`.
 
-> **Note:** `render.yaml` is for Render only. Railway uses `railway.toml`.
+---
 
 ## Troubleshooting
 
 ### Container exits immediately
 
-The API needs a **start command** and a **PostgreSQL `DATABASE_URL`**.
-
-| Environment | Start command |
-|-------------|---------------|
-| Docker Compose | `docker compose up -d --build` (uses `scripts/entrypoint.sh` automatically) |
-| Cloud (Render, Railway, etc.) | Set start command to `/app/scripts/entrypoint.sh` or `uvicorn ytdb.api.app:app --host 0.0.0.0 --port $PORT` |
-| Local | `python -m ytdb serve` |
-
-Common causes of `status: exited`:
-
-1. **Missing `DATABASE_URL`** — provision PostgreSQL and set the env var
-2. **Wrong start command** — do not use bare `python -m ytdb` (it exits immediately)
-3. **Wrong port** — cloud platforms set `PORT`; the entrypoint reads it automatically
-4. **Stale Docker image** — rebuild with `docker compose up -d --build`
+| Cause | Fix |
+|-------|-----|
+| Missing `DATABASE_URL` | Provision PostgreSQL and set the env var |
+| Wrong start command | Use `ytdb serve` or `/app/scripts/entrypoint.sh` — not bare `python -m ytdb` |
+| Wrong port | Cloud platforms set `PORT`; the entrypoint reads it automatically |
+| Stale image | Rebuild: `docker compose up -d --build` |
 
 ### Application failed to respond (Railway / cloud)
 
-**Railway checklist:**
+1. `DATABASE_URL` references your Postgres service
+2. Start command is `/app/scripts/entrypoint.sh`
+3. Health check path is `/health`
+4. Leave `DB_SSLMODE` unset for `*.railway.internal` URLs
 
-1. **PostgreSQL linked** — `DATABASE_URL` must reference your Railway Postgres service
-2. **Start command** — `/app/scripts/entrypoint.sh` (set in `railway.toml`)
-3. **Health check** — `/health` (returns 200 before DB is fully ready)
-4. **Do not use** bare `python -m ytdb` as the start command
-5. **Private Postgres** — leave `DB_SSLMODE` unset for `*.railway.internal` URLs
+### No transcripts saved
 
-**Other platforms:**
+- The video may not have captions enabled
+- Try a different language code
+- Use `--force` or enable **Force refresh** to re-attempt failed videos
 
-1. Set **`DATABASE_URL`** to your managed PostgreSQL connection string
-2. Set **`DB_SSLMODE=require`** only for public cloud DB URLs (not Railway internal)
-3. Use start command **`/app/scripts/entrypoint.sh`** (Docker) or:
-   ```
-   uvicorn ytdb.api.app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
-   ```
-4. Health check path: **`/health`**
+### Daily sync not running
 
-Check deploy logs for `Starting ytdb API on 0.0.0.0:<port>`.
+- The job must have **Enabled** checked
+- Frequency must be set (e.g. **Daily / 24h**), not **Manual only**
+- The scheduler polls every minute; check run history for errors
+
+---
+
+## Limitations
+
+- Only videos with available captions are stored
+- YouTube may rate-limit heavy usage — use `--max-videos` while testing
+- Transcript availability depends on the uploader and YouTube caption settings
+
+---
 
 ## License
 
