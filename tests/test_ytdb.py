@@ -156,3 +156,60 @@ def test_transcript_client_formats_text():
 
     assert result is not None
     assert result.content == "Hello\nworld"
+
+
+def test_transcript_client_raises_on_youtube_block():
+    from youtube_transcript_api._errors import RequestBlocked
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    class FakeApi:
+        def list(self, video_id):
+            raise RequestBlocked(video_id)
+
+    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None: None):
+        client = TranscriptClient()
+        client.preferred_languages = ["en"]
+        client._api = FakeApi()
+        with pytest.raises(TranscriptFetchError) as exc_info:
+            client.fetch_transcript("ccm7bUNZZDI")
+
+    assert "ccm7bUNZZDI" in str(exc_info.value)
+
+
+@patch("ytdb.sync.get_settings")
+def test_sync_records_block_errors_instead_of_silent_skip(mock_get_settings, repository):
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    mock_get_settings.return_value = MagicMock(database_url="sqlite+pysqlite:///:memory:")
+
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = ChannelInfo(
+        "UCsyncchannel0000001", "Sync Channel", "https://youtube.com/@sync"
+    )
+    channel_client.list_content.return_value = [
+        VideoInfo(
+            "ccm7bUNZZDI",
+            "Public Safety & Criminal Justice on July 2, 2026",
+            None,
+            "https://youtube.com/watch?v=ccm7bUNZZDI",
+        ),
+    ]
+
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.side_effect = TranscriptFetchError(
+        "YouTube blocked caption download for ccm7bUNZZDI"
+    )
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+
+    result = service.sync_channel("@sync", max_videos=1)
+
+    assert result.videos_processed == 1
+    assert result.transcripts_saved == 0
+    assert result.errors == 1
+    assert result.error_messages
+    assert "ccm7bUNZZDI" in result.error_messages[0]

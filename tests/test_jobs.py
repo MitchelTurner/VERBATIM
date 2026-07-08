@@ -86,12 +86,14 @@ def test_recover_interrupted_jobs_unsticks_running_status(repository, job_repo):
             enabled=True,
             force_refresh=False,
         )
+        # Push next_run_at into the future so we can prove recovery reschedules
+        # the job immediately instead of waiting for the next frequency window.
+        future = datetime(2099, 6, 1, tzinfo=timezone.utc)
+        job.next_run_at = future
         run = job_repo.mark_running(session, job)
         session.commit()
 
-        # Simulate the process dying here: job and run are stuck at "running".
-        far_future = datetime(2099, 1, 1, tzinfo=timezone.utc)
-        assert job_repo.list_due_jobs(session, now=far_future) == []
+        assert job_repo.list_due_jobs(session, now=datetime.now(timezone.utc)) == []
 
         recovered = job_repo.recover_interrupted_jobs(session)
         session.commit()
@@ -101,9 +103,10 @@ def test_recover_interrupted_jobs_unsticks_running_status(repository, job_repo):
         assert job.last_error is not None
         assert run.status == "interrupted"
         assert run.finished_at is not None
+        assert job.next_run_at is not None
+        assert job.next_run_at <= datetime.now(timezone.utc)
 
-        # The job is schedulable again.
-        due = job_repo.list_due_jobs(session, now=far_future)
+        due = job_repo.list_due_jobs(session, now=datetime.now(timezone.utc))
         assert [item.id for item in due] == [job.id]
 
 

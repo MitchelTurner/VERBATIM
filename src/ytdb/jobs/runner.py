@@ -60,8 +60,13 @@ def run_sync_job(job_id: int) -> None:
         )
         message = (
             f"Processed {result.videos_processed} videos; "
-            f"saved {result.transcripts_saved} transcripts"
+            f"saved {result.transcripts_saved} transcripts; "
+            f"skipped {result.transcripts_skipped}"
         )
+        if result.errors:
+            message += f"; errors {result.errors}"
+            if result.error_messages:
+                message += f" — {result.error_messages[0]}"
         status = "success" if result.errors == 0 else "partial"
         with transcript_repo.session() as session:
             job = job_repo.get_job(session, job_id)
@@ -77,6 +82,7 @@ def run_sync_job(job_id: int) -> None:
                     transcripts_skipped=result.transcripts_skipped,
                     errors=result.errors,
                     message=message,
+                    error=result.error_messages[0] if result.error_messages else None,
                 )
                 session.commit()
     except Exception as exc:

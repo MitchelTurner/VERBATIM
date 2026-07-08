@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from ytdb.config import get_settings
 from ytdb.db.repository import TranscriptRepository
 from ytdb.youtube.channel import ChannelClient, ChannelInfo, VideoInfo
-from ytdb.youtube.transcripts import TranscriptClient
+from ytdb.youtube.transcripts import TranscriptClient, TranscriptFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class SyncResult:
     transcripts_saved: int
     transcripts_skipped: int
     errors: int
+    error_messages: list[str] | None = None
 
 
 class SyncService:
@@ -66,6 +67,7 @@ class SyncService:
         transcripts_saved = 0
         transcripts_skipped = 0
         errors = 0
+        error_messages: list[str] = []
 
         with self.repository.session() as session:
             channel = self.repository.upsert_channel(session, channel_info)
@@ -83,8 +85,17 @@ class SyncService:
                         transcripts_saved += 1
                     else:
                         transcripts_skipped += 1
-                except Exception:
+                except TranscriptFetchError as exc:
                     errors += 1
+                    message = str(exc)
+                    if message not in error_messages:
+                        error_messages.append(message)
+                    logger.error("Caption fetch blocked for %s: %s", video_info.video_id, exc)
+                except Exception as exc:
+                    errors += 1
+                    message = f"{video_info.video_id}: {exc}"
+                    if len(error_messages) < 5:
+                        error_messages.append(message)
                     logger.exception("Failed to process video %s", video_info.video_id)
 
             session.commit()
@@ -95,6 +106,7 @@ class SyncService:
             transcripts_saved=transcripts_saved,
             transcripts_skipped=transcripts_skipped,
             errors=errors,
+            error_messages=error_messages or None,
         )
 
     def _process_video(

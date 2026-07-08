@@ -94,6 +94,9 @@ class SyncJobRepository:
         ``last_status='running'`` forever, and such jobs are silently skipped
         by both the scheduler poll and manual triggers — the job looks alive
         in the UI but never syncs again. Returns the number of jobs reset.
+
+        Recovered jobs are scheduled to run immediately so a redeploy does not
+        leave the newest meeting waiting until the next frequency window.
         """
         now = datetime.now(timezone.utc)
 
@@ -103,6 +106,8 @@ class SyncJobRepository:
         for job in stuck_jobs:
             job.last_status = "interrupted"
             job.last_error = "Sync was interrupted by a server restart"
+            if job.enabled and job.frequency != "manual":
+                job.next_run_at = now
 
         stuck_runs = list(
             session.scalars(select(SyncRun).where(SyncRun.status == "running"))

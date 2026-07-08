@@ -2,18 +2,40 @@
 
 Tries ``preferred_languages`` in order and returns the first match.
 Returns None when captions are disabled or the video is unavailable.
+
+YouTube bot / IP blocks raise ``TranscriptFetchError`` so the sync run
+records a real error instead of silently counting the video as skipped.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
+    AgeRestricted,
+    IpBlocked,
     NoTranscriptFound,
+    PoTokenRequired,
+    RequestBlocked,
     TranscriptsDisabled,
     VideoUnavailable,
+    YouTubeRequestFailed,
 )
 from youtube_transcript_api._transcripts import FetchedTranscript
+
+logger = logging.getLogger(__name__)
+
+# Errors that mean "this video has no captions we can use" — skip, don't fail.
+_SKIP_ERRORS = (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound, AgeRestricted)
+
+# Errors that mean YouTube is blocking us — fail loudly so the run history
+# shows why new meetings aren't appearing.
+_BLOCK_ERRORS = (RequestBlocked, IpBlocked, PoTokenRequired, YouTubeRequestFailed)
+
+
+class TranscriptFetchError(RuntimeError):
+    """Raised when YouTube blocks or otherwise prevents caption download."""
 
 
 @dataclass(frozen=True)
@@ -32,8 +54,12 @@ class TranscriptClient:
     def fetch_transcript(self, video_id: str) -> TranscriptData | None:
         try:
             transcript_list = self._api.list(video_id)
-        except (TranscriptsDisabled, VideoUnavailable):
+        except _SKIP_ERRORS:
             return None
+        except _BLOCK_ERRORS as exc:
+            raise TranscriptFetchError(
+                f"YouTube blocked caption download for {video_id}: {exc}"
+            ) from exc
 
         transcript = self._select_transcript(transcript_list)
         if transcript is None:
@@ -41,10 +67,17 @@ class TranscriptClient:
 
         try:
             fetched = transcript.fetch()
-        except NoTranscriptFound:
+        except _SKIP_ERRORS:
             return None
+        except _BLOCK_ERRORS as exc:
+            raise TranscriptFetchError(
+                f"YouTube blocked caption download for {video_id}: {exc}"
+            ) from exc
 
         text = self._format_transcript(fetched)
+        if not text.strip():
+            return None
+
         return TranscriptData(
             language=transcript.language,
             language_code=transcript.language_code,
