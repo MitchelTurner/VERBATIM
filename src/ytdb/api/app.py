@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ytdb.api.routes import router
 from ytdb.config import get_settings
+from ytdb.db.job_repository import SyncJobRepository
 from ytdb.db.repository import TranscriptRepository
 from ytdb.jobs.runner import poll_due_jobs
 
@@ -51,7 +52,21 @@ async def _initialize() -> None:
 
     for attempt in range(1, max_attempts + 1):
         try:
-            TranscriptRepository(settings.database_url).init_db()
+            repository = TranscriptRepository(settings.database_url)
+            repository.init_db()
+
+            # Jobs run in this process, so any job still marked "running" was
+            # interrupted by a crash/redeploy and must be reset before the
+            # scheduler starts, or it will be skipped on every poll forever.
+            with repository.session() as session:
+                recovered = SyncJobRepository().recover_interrupted_jobs(session)
+                session.commit()
+            if recovered:
+                logger.info(
+                    "Recovered %s sync job(s) interrupted by a previous shutdown",
+                    recovered,
+                )
+
             _scheduler = start_scheduler()
             _db_ready.set()
             logger.info("Database initialized and scheduler started")

@@ -96,6 +96,61 @@ def test_live_stream_is_not_skipped_when_transcript_exists(repository):
     assert transcript_client.fetch_transcript.call_count == 2
 
 
+def test_transcript_refetched_once_after_broadcast_ends(repository):
+    """A transcript saved mid-broadcast only covers part of the stream. When
+    the broadcast ends, it must be re-fetched once for the full content, then
+    skipped on later syncs as usual."""
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = ChannelInfo(
+        "UCchannel", "Channel", "https://youtube.com/@channel"
+    )
+    live_variant = VideoInfo(
+        "meet1", "Council meeting", None, "https://youtube.com/watch?v=meet1", "live", True
+    )
+    ended_variant = VideoInfo(
+        "meet1", "Council meeting", None, "https://youtube.com/watch?v=meet1", "stream", False
+    )
+    channel_client.list_content.side_effect = [
+        [live_variant],
+        [ended_variant],
+        [ended_variant],
+    ]
+
+    def transcript(content):
+        return MagicMock(
+            language="English",
+            language_code="en",
+            is_auto_generated=True,
+            content=content,
+        )
+
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.side_effect = [
+        transcript("partial mid-meeting captions"),
+        transcript("full meeting captions"),
+    ]
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+
+    service.sync_channel("@channel", skip_existing=True)
+    second = service.sync_channel("@channel", skip_existing=True)
+    third = service.sync_channel("@channel", skip_existing=True)
+
+    # Fetched while live, then exactly once more after the broadcast ended.
+    assert transcript_client.fetch_transcript.call_count == 2
+    assert second.transcripts_saved == 1
+    assert third.transcripts_skipped == 1
+
+    with repository.session() as session:
+        rows = repository.search_transcripts(session)
+        assert len(rows) == 1
+        assert rows[0][0].content == "full meeting captions"
+
+
 def test_max_items_does_not_starve_videos_tab():
     """A long streams backlog must not crowd new uploads out of the cap.
 

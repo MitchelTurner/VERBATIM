@@ -103,6 +103,14 @@ class TranscriptRepository:
         session.flush()
         return record
 
+    def video_marked_live(self, session: Session, youtube_video_id: str) -> bool:
+        """True if the stored video row is still flagged as a live broadcast."""
+        return bool(
+            session.scalar(
+                select(Video.is_live).where(Video.youtube_video_id == youtube_video_id)
+            )
+        )
+
     def list_channels(self, session: Session) -> list[Channel]:
         return list(session.scalars(select(Channel).order_by(Channel.name)))
 

@@ -86,6 +86,35 @@ class SyncJobRepository:
             )
         )
 
+    def recover_interrupted_jobs(self, session: Session) -> int:
+        """Reset jobs left in ``running`` state by a previous process.
+
+        Sync jobs execute inside the API process, so right after startup no
+        job can actually be running. A crash or redeploy mid-run leaves
+        ``last_status='running'`` forever, and such jobs are silently skipped
+        by both the scheduler poll and manual triggers — the job looks alive
+        in the UI but never syncs again. Returns the number of jobs reset.
+        """
+        now = datetime.now(timezone.utc)
+
+        stuck_jobs = list(
+            session.scalars(select(SyncJob).where(SyncJob.last_status == "running"))
+        )
+        for job in stuck_jobs:
+            job.last_status = "interrupted"
+            job.last_error = "Sync was interrupted by a server restart"
+
+        stuck_runs = list(
+            session.scalars(select(SyncRun).where(SyncRun.status == "running"))
+        )
+        for run in stuck_runs:
+            run.status = "interrupted"
+            run.finished_at = now
+            run.message = "Interrupted by a server restart"
+
+        session.flush()
+        return len(stuck_jobs)
+
     def mark_running(self, session: Session, job: SyncJob) -> SyncRun:
         job.last_status = "running"
         job.last_error = None

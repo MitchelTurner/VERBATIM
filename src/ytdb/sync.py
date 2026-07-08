@@ -105,13 +105,21 @@ class SyncService:
         *,
         skip_existing: bool,
     ) -> bool:
+        # Capture live state before upsert_video overwrites it: when a
+        # broadcast has ended since the last sync, the stored transcript only
+        # covers the stream up to the last mid-broadcast fetch, so it needs
+        # one more refresh to include the full stream.
+        was_live_in_db = self.repository.video_marked_live(session, video_info.video_id)
         video = self.repository.upsert_video(session, channel, video_info)
+        broadcast_ended = was_live_in_db and not video_info.is_live
 
         # Live broadcasts are never skipped — captions grow as the stream runs,
-        # so we re-fetch on every sync while is_live is True.
+        # so we re-fetch on every sync while is_live is True, plus once more
+        # after the broadcast ends.
         should_skip = (
             skip_existing
             and not video_info.is_live
+            and not broadcast_ended
             and self.repository.has_transcript(session, video.id)
         )
         if should_skip:

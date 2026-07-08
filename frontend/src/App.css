@@ -221,6 +221,11 @@
   color: var(--danger);
 }
 
+.status-interrupted {
+  background: rgba(245, 165, 36, 0.15);
+  color: var(--warning);
+}
+
 .pill-list {
   display: flex;
   flex-wrap: wrap;
