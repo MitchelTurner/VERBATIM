@@ -98,36 +98,42 @@ class ChannelClient:
 
         Live items are listed first. When the same video appears in multiple
         tabs, the live variant wins so ``is_live`` stays accurate.
+
+        Each tab arrives newest-first from YouTube, but flat extraction gives
+        no timestamps, so the tabs are interleaved by position before applying
+        ``max_items``. Without this, a channel with a long streams backlog
+        would fill the cap with old streams and new uploads from the videos
+        tab would never be synced.
         """
         base_url = normalize_channel_url(account)
-        collected: dict[str, VideoInfo] = {}
+        collected: dict[str, tuple[int, VideoInfo]] = {}
 
         if include_live:
             live = self.get_current_live(account)
             if live is not None:
-                collected[live.video_id] = live
+                collected[live.video_id] = (0, live)
 
+        tabs = []
         if include_streams:
-            for item in self._list_tab(base_url, "streams", max_items):
-                if item.video_id not in collected or item.is_live:
-                    collected[item.video_id] = item
-
+            tabs.append("streams")
         if include_videos:
-            for item in self._list_tab(base_url, "videos", max_items):
+            tabs.append("videos")
+
+        for tab in tabs:
+            for position, item in enumerate(self._list_tab(base_url, tab, max_items)):
                 existing = collected.get(item.video_id)
                 if existing is None:
-                    collected[item.video_id] = item
-                elif item.is_live and not existing.is_live:
-                    collected[item.video_id] = item
+                    collected[item.video_id] = (position, item)
+                elif item.is_live and not existing[1].is_live:
+                    collected[item.video_id] = (min(existing[0], position), item)
 
-        results = list(collected.values())
-        results.sort(
-            key=lambda item: (
-                0 if item.is_live else 1,
-                0 if item.content_type == "stream" else 1,
-                -(item.published_at.timestamp() if item.published_at else 0),
-            ),
+        # Stable sort: live first, then by tab position so the newest entries
+        # from every tab survive truncation; ties keep streams before videos.
+        ranked = sorted(
+            collected.values(),
+            key=lambda pair: (0 if pair[1].is_live else 1, pair[0]),
         )
+        results = [item for _, item in ranked]
 
         if max_items is not None:
             return results[:max_items]
