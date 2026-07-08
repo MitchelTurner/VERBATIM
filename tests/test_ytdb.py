@@ -148,9 +148,10 @@ def test_transcript_client_formats_text():
         def list(self, video_id):
             return FakeList()
 
-    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None: None):
+    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None, **kwargs: None):
         client = TranscriptClient()
         client.preferred_languages = ["en"]
+        client._using_proxy = False
         client._api = FakeApi()
         result = client.fetch_transcript("video-id")
 
@@ -166,14 +167,77 @@ def test_transcript_client_raises_on_youtube_block():
         def list(self, video_id):
             raise RequestBlocked(video_id)
 
-    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None: None):
+    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None, **kwargs: None):
         client = TranscriptClient()
         client.preferred_languages = ["en"]
+        client._using_proxy = False
         client._api = FakeApi()
         with pytest.raises(TranscriptFetchError) as exc_info:
             client.fetch_transcript("ccm7bUNZZDI")
 
     assert "ccm7bUNZZDI" in str(exc_info.value)
+    assert "WEBSHARE_PROXY_USERNAME" in str(exc_info.value)
+
+
+def test_build_proxy_config_prefers_webshare():
+    from ytdb.config import Settings
+    from ytdb.youtube.transcripts import build_proxy_config
+    from youtube_transcript_api.proxies import WebshareProxyConfig
+
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        host="0.0.0.0",
+        port=8000,
+        db_init_retries=1,
+        db_init_retry_delay=0.1,
+        webshare_proxy_username="user",
+        webshare_proxy_password="pass",
+        youtube_https_proxy="http://other:proxy@host:8080",
+    )
+    config = build_proxy_config(settings)
+    assert isinstance(config, WebshareProxyConfig)
+
+
+def test_build_proxy_config_generic():
+    from ytdb.config import Settings
+    from ytdb.youtube.transcripts import build_proxy_config
+    from youtube_transcript_api.proxies import GenericProxyConfig
+
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        host="0.0.0.0",
+        port=8000,
+        db_init_retries=1,
+        db_init_retry_delay=0.1,
+        youtube_https_proxy="http://user:pass@proxy.example:8080",
+    )
+    config = build_proxy_config(settings)
+    assert isinstance(config, GenericProxyConfig)
+
+
+def test_build_proxy_config_none_without_env():
+    from ytdb.config import Settings
+    from ytdb.youtube.transcripts import build_proxy_config
+
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        host="0.0.0.0",
+        port=8000,
+        db_init_retries=1,
+        db_init_retry_delay=0.1,
+    )
+    assert build_proxy_config(settings) is None
+    assert build_proxy_config(None) is None
+
+
+def test_transcript_client_uses_proxy_config():
+    from youtube_transcript_api.proxies import GenericProxyConfig
+
+    proxy = GenericProxyConfig(https_url="http://user:pass@proxy.example:8080")
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi") as api_cls:
+        client = TranscriptClient(proxy_config=proxy)
+        api_cls.assert_called_once_with(proxy_config=proxy)
+        assert client._using_proxy is True
 
 
 @patch("ytdb.sync.get_settings")

@@ -40,7 +40,10 @@ class SyncService:
         settings = get_settings()
         self.repository = repository or TranscriptRepository(settings.database_url)
         self.channel_client = channel_client or ChannelClient()
-        self.transcript_client = transcript_client or TranscriptClient(preferred_languages)
+        self.transcript_client = transcript_client or TranscriptClient(
+            preferred_languages,
+            settings=settings,
+        )
 
     def sync_channel(
         self,

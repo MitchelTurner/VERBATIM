@@ -188,6 +188,10 @@ All endpoints are prefixed with `/api`.
 | `DB_INIT_RETRIES` | DB connection attempts on startup | `30` |
 | `DB_INIT_RETRY_DELAY` | Seconds between startup retries | `2` |
 | `YOUTUBE_API_KEY` | Optional; **not used** by core sync | — |
+| `WEBSHARE_PROXY_USERNAME` | Webshare rotating residential proxy username | — |
+| `WEBSHARE_PROXY_PASSWORD` | Webshare rotating residential proxy password | — |
+| `YOUTUBE_HTTP_PROXY` | Generic HTTP(S)/SOCKS proxy URL for captions | — |
+| `YOUTUBE_HTTPS_PROXY` | Generic HTTPS proxy URL for captions | — |
 
 ---
 
@@ -296,6 +300,21 @@ Database initialized and scheduler started
 - Try a different language code
 - Use `--force` or enable **Force refresh** to re-attempt failed videos
 
+### YouTube blocked caption download (cloud IP)
+
+YouTube blocks most cloud-provider IPs (Railway, Render, AWS, GCP, Azure). Channel discovery via yt-dlp can still work while caption downloads fail with `RequestBlocked` / `IpBlocked`.
+
+**Fix:** route caption requests through a rotating **residential** proxy.
+
+1. Create a [Webshare](https://www.webshare.io/) account and buy a **Residential** package (not “Proxy Server” or “Static Residential”)
+2. Copy **Proxy Username** and **Proxy Password** from the [Webshare proxy settings](https://dashboard.webshare.io/proxy/settings)
+3. In Railway → your service → **Variables**, set:
+   - `WEBSHARE_PROXY_USERNAME`
+   - `WEBSHARE_PROXY_PASSWORD`
+4. Redeploy, then click **Run now** on the sync job
+
+Alternatively set `YOUTUBE_HTTPS_PROXY` (and optionally `YOUTUBE_HTTP_PROXY`) to any `http://user:pass@host:port` residential proxy URL.
+
 ### Daily sync not running
 
 - The job must have **Enabled** checked
@@ -307,6 +326,7 @@ Database initialized and scheduler started
 ## Limitations
 
 - Only videos with available captions are stored
+- YouTube blocks caption downloads from most cloud IPs — configure a residential proxy (see Troubleshooting)
 - YouTube may rate-limit heavy usage — use `--max-videos` while testing
 - Transcript availability depends on the uploader and YouTube caption settings
 

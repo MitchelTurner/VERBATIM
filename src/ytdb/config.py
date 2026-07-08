@@ -2,6 +2,11 @@
 
 Copy ``.env.example`` to ``.env`` for local development. Cloud platforms
 (Railway, Render) inject ``DATABASE_URL`` and ``PORT`` automatically.
+
+Caption downloads from cloud IPs are often blocked by YouTube. Set either
+``WEBSHARE_PROXY_USERNAME`` / ``WEBSHARE_PROXY_PASSWORD`` (recommended
+rotating residential proxies) or ``YOUTUBE_HTTP_PROXY`` /
+``YOUTUBE_HTTPS_PROXY`` so ``TranscriptClient`` can reach captions.
 """
 from __future__ import annotations
 
@@ -23,6 +28,15 @@ class Settings:
     db_init_retries: int
     db_init_retry_delay: float
     youtube_api_key: str | None = None
+    webshare_proxy_username: str | None = None
+    webshare_proxy_password: str | None = None
+    youtube_http_proxy: str | None = None
+    youtube_https_proxy: str | None = None
+
+    def has_youtube_proxy(self) -> bool:
+        if self.webshare_proxy_username and self.webshare_proxy_password:
+            return True
+        return bool(self.youtube_http_proxy or self.youtube_https_proxy)
 
 
 def get_settings() -> Settings:
@@ -39,4 +53,8 @@ def get_settings() -> Settings:
         db_init_retries=int(os.getenv("DB_INIT_RETRIES", "30")),
         db_init_retry_delay=float(os.getenv("DB_INIT_RETRY_DELAY", "2")),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY") or None,
+        webshare_proxy_username=os.getenv("WEBSHARE_PROXY_USERNAME") or None,
+        webshare_proxy_password=os.getenv("WEBSHARE_PROXY_PASSWORD") or None,
+        youtube_http_proxy=os.getenv("YOUTUBE_HTTP_PROXY") or None,
+        youtube_https_proxy=os.getenv("YOUTUBE_HTTPS_PROXY") or None,
     )
