@@ -148,11 +148,8 @@ def test_transcript_client_formats_text():
         def list(self, video_id):
             return FakeList()
 
-    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None, **kwargs: None):
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=FakeApi()):
         client = TranscriptClient()
-        client.preferred_languages = ["en"]
-        client._using_proxy = False
-        client._api = FakeApi()
         result = client.fetch_transcript("video-id")
 
     assert result is not None
@@ -167,16 +164,130 @@ def test_transcript_client_raises_on_youtube_block():
         def list(self, video_id):
             raise RequestBlocked(video_id)
 
-    with patch.object(TranscriptClient, "__init__", lambda self, preferred_languages=None, **kwargs: None):
-        client = TranscriptClient()
-        client.preferred_languages = ["en"]
-        client._using_proxy = False
-        client._api = FakeApi()
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=FakeApi()):
+        client = TranscriptClient(max_retries=0)
         with pytest.raises(TranscriptFetchError) as exc_info:
             client.fetch_transcript("ccm7bUNZZDI")
 
     assert "ccm7bUNZZDI" in str(exc_info.value)
     assert "WEBSHARE_PROXY_USERNAME" in str(exc_info.value)
+
+
+def test_transcript_client_retries_on_429_then_succeeds():
+    from requests.exceptions import RetryError
+
+    class FakeSnippet:
+        def __init__(self, text):
+            self.text = text
+
+    class FakeFetched:
+        snippets = [FakeSnippet("hello")]
+
+    class FakeTranscript:
+        language = "English"
+        language_code = "en"
+        is_generated = True
+
+        def fetch(self):
+            return FakeFetched()
+
+    class FakeList:
+        def find_transcript(self, languages):
+            return FakeTranscript()
+
+        def find_generated_transcript(self, languages):
+            return FakeTranscript()
+
+        def __iter__(self):
+            return iter([FakeTranscript()])
+
+    class FlakyApi:
+        def __init__(self):
+            self.calls = 0
+
+        def list(self, video_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise RetryError(
+                    "HTTPSConnectionPool(host='www.youtube.com', port=443): "
+                    "Max retries exceeded with url: /api/timedtext "
+                    "(Caused by ResponseError('too many 429 error responses'))"
+                )
+            return FakeList()
+
+    sleeps: list[float] = []
+    api = FlakyApi()
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=api):
+        client = TranscriptClient(
+            max_retries=3,
+            retry_base_delay=1.0,
+            sleep=sleeps.append,
+        )
+        result = client.fetch_transcript("cHzveGb-UPI")
+
+    assert result is not None
+    assert result.content == "hello"
+    assert api.calls == 2
+    assert sleeps == [1.0]
+
+
+def test_transcript_client_gives_up_after_429_retries():
+    from requests.exceptions import RetryError
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    class Always429:
+        def list(self, video_id):
+            raise RetryError("too many 429 error responses")
+
+    sleeps: list[float] = []
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=Always429()):
+        client = TranscriptClient(
+            max_retries=2,
+            retry_base_delay=0.5,
+            sleep=sleeps.append,
+        )
+        with pytest.raises(TranscriptFetchError) as exc_info:
+            client.fetch_transcript("cHzveGb-UPI")
+
+    assert "rate-limited" in str(exc_info.value).lower() or "429" in str(exc_info.value)
+    assert sleeps == [0.5, 1.0]
+
+
+@patch("ytdb.sync.get_settings")
+def test_sync_spaces_caption_downloads(mock_get_settings, repository):
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=1.5,
+        youtube_caption_max_retries=5,
+    )
+
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = ChannelInfo(
+        "UCsyncchannel0000001", "Sync Channel", "https://youtube.com/@sync"
+    )
+    channel_client.list_content.return_value = [
+        VideoInfo("vid1", "One", None, "https://youtube.com/watch?v=vid1"),
+        VideoInfo("vid2", "Two", None, "https://youtube.com/watch?v=vid2"),
+    ]
+
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.return_value = TranscriptData(
+        "English", "en", False, "text"
+    )
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+    service._caption_delay = 1.5
+
+    with patch("ytdb.sync.time.sleep") as sleep_mock:
+        result = service.sync_channel("@sync", max_videos=2)
+
+    assert result.transcripts_saved == 2
+    # Delay only between downloads, not before the first.
+    sleep_mock.assert_called_once_with(1.5)
 
 
 def test_build_proxy_config_prefers_webshare():
@@ -244,7 +355,11 @@ def test_transcript_client_uses_proxy_config():
 def test_sync_records_block_errors_instead_of_silent_skip(mock_get_settings, repository):
     from ytdb.youtube.transcripts import TranscriptFetchError
 
-    mock_get_settings.return_value = MagicMock(database_url="sqlite+pysqlite:///:memory:")
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=0,
+        youtube_caption_max_retries=5,
+    )
 
     channel_client = MagicMock()
     channel_client.get_channel_info.return_value = ChannelInfo(

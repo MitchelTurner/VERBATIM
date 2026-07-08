@@ -7,6 +7,7 @@ Both the CLI ``sync`` command and scheduled web jobs call into this module.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 from ytdb.config import get_settings
@@ -44,6 +45,12 @@ class SyncService:
             preferred_languages,
             settings=settings,
         )
+        # Space caption downloads so a full sync does not trip YouTube 429s.
+        try:
+            self._caption_delay = float(getattr(settings, "youtube_caption_delay", 1.5))
+        except (TypeError, ValueError):
+            self._caption_delay = 1.5
+        self._fetched_this_run = 0
 
     def sync_channel(
         self,
@@ -56,6 +63,7 @@ class SyncService:
         include_live: bool = True,
     ) -> SyncResult:
         self.repository.init_db()
+        self._fetched_this_run = 0
 
         channel_info = self.channel_client.get_channel_info(account)
         videos = self.channel_client.list_content(
@@ -140,7 +148,11 @@ class SyncService:
         if should_skip:
             return False
 
+        if self._fetched_this_run > 0 and self._caption_delay > 0:
+            time.sleep(self._caption_delay)
+
         transcript = self.transcript_client.fetch_transcript(video_info.video_id)
+        self._fetched_this_run += 1
         if transcript is None:
             return False
 

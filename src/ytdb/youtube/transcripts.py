@@ -10,13 +10,20 @@ Cloud hosts (Railway, Render, AWS, etc.) are routinely blocked by YouTube.
 Pass a residential proxy via settings — Webshare rotating residential is
 the path recommended by youtube-transcript-api — so caption requests leave
 from a non-datacenter IP.
+
+Even with a proxy, YouTube rate-limits (HTTP 429) when captions are fetched
+too quickly. This client backs off and retries on 429s, and SyncService
+spaces downloads with ``YOUTUBE_CAPTION_DELAY``.
 """
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import RetryError
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     AgeRestricted,
@@ -42,6 +49,9 @@ _SKIP_ERRORS = (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound, AgeRes
 # Errors that mean YouTube is blocking us — fail loudly so the run history
 # shows why new meetings aren't appearing.
 _BLOCK_ERRORS = (RequestBlocked, IpBlocked, PoTokenRequired, YouTubeRequestFailed)
+
+# Transient transport failures that often wrap HTTP 429 from YouTube.
+_RETRYABLE_ERRORS = (RetryError, RequestsConnectionError, YouTubeRequestFailed)
 
 _PROXY_HINT = (
     "YouTube is blocking this host's IP (common on Railway/cloud). "
@@ -71,6 +81,7 @@ def build_proxy_config(settings: Settings | None):
         return WebshareProxyConfig(
             proxy_username=settings.webshare_proxy_username,
             proxy_password=settings.webshare_proxy_password,
+            retries_when_blocked=10,
         )
 
     if settings.youtube_http_proxy or settings.youtube_https_proxy:
@@ -82,6 +93,21 @@ def build_proxy_config(settings: Settings | None):
     return None
 
 
+def _is_rate_limited(exc: BaseException) -> bool:
+    """True when the failure looks like YouTube HTTP 429 / retry exhaustion."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).lower()
+        if "429" in text or "too many" in text or "rate limit" in text:
+            return True
+        if isinstance(current, RetryError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 class TranscriptClient:
     def __init__(
         self,
@@ -89,9 +115,19 @@ class TranscriptClient:
         *,
         settings: Settings | None = None,
         proxy_config=None,
+        max_retries: int | None = None,
+        retry_base_delay: float = 2.0,
+        sleep=time.sleep,
     ) -> None:
         self.preferred_languages = preferred_languages or ["en"]
         self._using_proxy = False
+        self._max_retries = (
+            max_retries
+            if max_retries is not None
+            else (settings.youtube_caption_max_retries if settings else 5)
+        )
+        self._retry_base_delay = retry_base_delay
+        self._sleep = sleep
 
         if proxy_config is None and settings is not None:
             proxy_config = build_proxy_config(settings)
@@ -104,24 +140,48 @@ class TranscriptClient:
             self._api = YouTubeTranscriptApi()
 
     def fetch_transcript(self, video_id: str) -> TranscriptData | None:
-        try:
-            transcript_list = self._api.list(video_id)
-        except _SKIP_ERRORS:
-            return None
-        except _BLOCK_ERRORS as exc:
-            raise TranscriptFetchError(self._block_message(video_id, exc)) from exc
+        last_error: Exception | None = None
+        attempts = max(1, self._max_retries + 1)
 
+        for attempt in range(attempts):
+            try:
+                return self._fetch_once(video_id)
+            except _SKIP_ERRORS:
+                return None
+            except _BLOCK_ERRORS as exc:
+                if _is_rate_limited(exc) and attempt < attempts - 1:
+                    last_error = exc
+                    self._backoff(video_id, attempt, exc)
+                    continue
+                raise TranscriptFetchError(self._block_message(video_id, exc)) from exc
+            except _RETRYABLE_ERRORS as exc:
+                if _is_rate_limited(exc) and attempt < attempts - 1:
+                    last_error = exc
+                    self._backoff(video_id, attempt, exc)
+                    continue
+                if _is_rate_limited(exc):
+                    raise TranscriptFetchError(
+                        f"YouTube rate-limited caption download for {video_id} "
+                        f"after {attempts} attempts (HTTP 429). Wait a minute and "
+                        f"re-run, or raise YOUTUBE_CAPTION_DELAY. Last error: {exc}"
+                    ) from exc
+                raise TranscriptFetchError(
+                    f"Caption download failed for {video_id}: {exc}"
+                ) from exc
+
+        if last_error is not None:
+            raise TranscriptFetchError(
+                f"YouTube rate-limited caption download for {video_id}: {last_error}"
+            ) from last_error
+        return None
+
+    def _fetch_once(self, video_id: str) -> TranscriptData | None:
+        transcript_list = self._api.list(video_id)
         transcript = self._select_transcript(transcript_list)
         if transcript is None:
             return None
 
-        try:
-            fetched = transcript.fetch()
-        except _SKIP_ERRORS:
-            return None
-        except _BLOCK_ERRORS as exc:
-            raise TranscriptFetchError(self._block_message(video_id, exc)) from exc
-
+        fetched = transcript.fetch()
         text = self._format_transcript(fetched)
         if not text.strip():
             return None
@@ -132,6 +192,18 @@ class TranscriptClient:
             is_auto_generated=transcript.is_generated,
             content=text,
         )
+
+    def _backoff(self, video_id: str, attempt: int, exc: Exception) -> None:
+        delay = self._retry_base_delay * (2**attempt)
+        logger.warning(
+            "YouTube rate-limited %s (attempt %s/%s); sleeping %.1fs — %s",
+            video_id,
+            attempt + 1,
+            self._max_retries + 1,
+            delay,
+            exc,
+        )
+        self._sleep(delay)
 
     def _block_message(self, video_id: str, exc: Exception) -> str:
         if self._using_proxy:

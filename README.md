@@ -192,6 +192,8 @@ All endpoints are prefixed with `/api`.
 | `WEBSHARE_PROXY_PASSWORD` | Webshare rotating residential proxy password | — |
 | `YOUTUBE_HTTP_PROXY` | Generic HTTP(S)/SOCKS proxy URL for captions | — |
 | `YOUTUBE_HTTPS_PROXY` | Generic HTTPS proxy URL for captions | — |
+| `YOUTUBE_CAPTION_DELAY` | Seconds to wait between caption downloads | `1.5` |
+| `YOUTUBE_CAPTION_MAX_RETRIES` | Extra attempts after HTTP 429 before failing a video | `5` |
 
 ---
 
@@ -314,6 +316,8 @@ YouTube blocks most cloud-provider IPs (Railway, Render, AWS, GCP, Azure). Chann
 4. Redeploy, then click **Run now** on the sync job
 
 Alternatively set `YOUTUBE_HTTPS_PROXY` (and optionally `YOUTUBE_HTTP_PROXY`) to any `http://user:pass@host:port` residential proxy URL.
+
+If History shows `too many 429 error responses`, YouTube is rate-limiting caption fetches. The app already spaces downloads (`YOUTUBE_CAPTION_DELAY`, default 1.5s) and retries with backoff. Wait a minute, then **Run now** again; raise `YOUTUBE_CAPTION_DELAY` to `3` if 429s continue.
 
 ### Daily sync not running
 
