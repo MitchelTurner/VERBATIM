@@ -93,7 +93,7 @@ def build_proxy_config(settings: Settings | None):
     return None
 
 
-def _is_rate_limited(exc: BaseException) -> bool:
+def is_rate_limited(exc: BaseException) -> bool:
     """True when the failure looks like YouTube HTTP 429 / retry exhaustion."""
     current: BaseException | None = exc
     seen: set[int] = set()
@@ -106,6 +106,10 @@ def _is_rate_limited(exc: BaseException) -> bool:
             return True
         current = current.__cause__ or current.__context__
     return False
+
+
+# Backwards-compatible alias used by older imports/tests.
+_is_rate_limited = is_rate_limited
 
 
 class TranscriptClient:

@@ -63,6 +63,8 @@ def run_sync_job(job_id: int) -> None:
             f"saved {result.transcripts_saved} transcripts; "
             f"skipped {result.transcripts_skipped}"
         )
+        if result.backfilled:
+            message += f"; backfilled {result.backfilled} missing"
         if result.errors:
             message += f"; errors {result.errors}"
             if result.error_messages:

@@ -103,6 +103,39 @@ class TranscriptRepository:
         session.flush()
         return record
 
+    def get_video_by_youtube_id(self, session: Session, youtube_video_id: str) -> Video | None:
+        return session.scalar(
+            select(Video).where(Video.youtube_video_id == youtube_video_id)
+        )
+
+    def list_videos_missing_transcripts(
+        self,
+        session: Session,
+        channel_id: int,
+        *,
+        limit: int = 25,
+    ) -> list[Video]:
+        """Videos for a channel that were discovered but never got captions.
+
+        Happens when a sync upserts the video row and then hits a YouTube 429
+        or other caption error. Later syncs only look at the newest YouTube
+        tab page, so older gaps would never be retried without this query.
+        """
+        has_any = (
+            select(Transcript.id)
+            .where(Transcript.video_id == Video.id)
+            .correlate(Video)
+            .exists()
+        )
+        return list(
+            session.scalars(
+                select(Video)
+                .where(Video.channel_id == channel_id, ~has_any)
+                .order_by(Video.published_at.desc(), Video.id.desc())
+                .limit(limit)
+            )
+        )
+
     def video_marked_live(self, session: Session, youtube_video_id: str) -> bool:
         """True if the stored video row is still flagged as a live broadcast."""
         return bool(

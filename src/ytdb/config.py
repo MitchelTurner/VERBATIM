@@ -33,7 +33,7 @@ class Settings:
     youtube_http_proxy: str | None = None
     youtube_https_proxy: str | None = None
     # Pause between caption downloads to avoid YouTube 429s through a proxy.
-    youtube_caption_delay: float = 1.5
+    youtube_caption_delay: float = 2.5
     # Extra attempts after a 429 / RetryError before failing the video.
     youtube_caption_max_retries: int = 5
 
@@ -61,6 +61,6 @@ def get_settings() -> Settings:
         webshare_proxy_password=os.getenv("WEBSHARE_PROXY_PASSWORD") or None,
         youtube_http_proxy=os.getenv("YOUTUBE_HTTP_PROXY") or None,
         youtube_https_proxy=os.getenv("YOUTUBE_HTTPS_PROXY") or None,
-        youtube_caption_delay=float(os.getenv("YOUTUBE_CAPTION_DELAY", "1.5")),
+        youtube_caption_delay=float(os.getenv("YOUTUBE_CAPTION_DELAY", "2.5")),
         youtube_caption_max_retries=int(os.getenv("YOUTUBE_CAPTION_MAX_RETRIES", "5")),
     )

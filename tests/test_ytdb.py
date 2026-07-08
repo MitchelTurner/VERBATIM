@@ -85,7 +85,10 @@ def test_repository_upsert_transcript(repository):
 
 @patch("ytdb.sync.get_settings")
 def test_sync_service_processes_videos(mock_get_settings, repository):
-    mock_get_settings.return_value = MagicMock(database_url="sqlite+pysqlite:///:memory:")
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=0,
+    )
 
     channel_client = MagicMock()
     channel_client.get_channel_info.return_value = ChannelInfo(
@@ -119,6 +122,124 @@ def test_sync_service_processes_videos(mock_get_settings, repository):
         channels = repository.list_channels(session)
         assert len(channels) == 1
         assert repository.count_transcripts_for_channel(session, channels[0].id) == 1
+
+
+@patch("ytdb.sync.get_settings")
+def test_sync_does_not_create_video_when_captions_fail(mock_get_settings, repository):
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=0,
+    )
+
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = ChannelInfo(
+        "UCsyncchannel0000001", "Sync Channel", "https://youtube.com/@sync"
+    )
+    channel_client.list_content.return_value = [
+        VideoInfo("newvid", "New", None, "https://youtube.com/watch?v=newvid"),
+    ]
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.side_effect = TranscriptFetchError(
+        "YouTube rate-limited caption download for newvid after 6 attempts (HTTP 429)"
+    )
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+    result = service.sync_channel("@sync", max_videos=1)
+
+    assert result.errors == 1
+    with repository.session() as session:
+        assert repository.get_stats(session)["videos"] == 0
+        assert repository.get_stats(session)["transcripts"] == 0
+
+
+@patch("ytdb.sync.get_settings")
+def test_sync_backfills_videos_missing_transcripts(mock_get_settings, repository):
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=0,
+    )
+
+    channel_info = ChannelInfo("UCchannel", "Council", "https://youtube.com/@council")
+    with repository.session() as session:
+        channel = repository.upsert_channel(session, channel_info)
+        channel_id = channel.id
+        repository.upsert_video(
+            session,
+            channel,
+            VideoInfo("old1", "Old meeting", None, "https://youtube.com/watch?v=old1"),
+        )
+        session.commit()
+
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = channel_info
+    # Newest tab page no longer includes old1 — without backfill it would be ignored.
+    channel_client.list_content.return_value = [
+        VideoInfo("new1", "New meeting", None, "https://youtube.com/watch?v=new1"),
+    ]
+
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.side_effect = [
+        TranscriptData("English", "en", False, "new captions"),
+        TranscriptData("English", "en", False, "old captions"),
+    ]
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+    result = service.sync_channel("@council", max_videos=10, skip_existing=True)
+
+    assert result.transcripts_saved == 2
+    assert result.backfilled == 1
+    assert transcript_client.fetch_transcript.call_count == 2
+    fetched_ids = [call.args[0] for call in transcript_client.fetch_transcript.call_args_list]
+    assert fetched_ids == ["new1", "old1"]
+
+    with repository.session() as session:
+        assert repository.get_stats(session)["transcripts"] == 2
+        assert repository.list_videos_missing_transcripts(session, channel_id) == []
+
+
+@patch("ytdb.sync.get_settings")
+def test_sync_stops_early_after_repeated_rate_limits(mock_get_settings, repository):
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    mock_get_settings.return_value = MagicMock(
+        database_url="sqlite+pysqlite:///:memory:",
+        youtube_caption_delay=0,
+    )
+
+    channel_client = MagicMock()
+    channel_client.get_channel_info.return_value = ChannelInfo(
+        "UCchannel", "Council", "https://youtube.com/@council"
+    )
+    channel_client.list_content.return_value = [
+        VideoInfo(f"v{i}", f"Title {i}", None, f"https://youtube.com/watch?v=v{i}")
+        for i in range(6)
+    ]
+    transcript_client = MagicMock()
+    transcript_client.fetch_transcript.side_effect = TranscriptFetchError(
+        "YouTube rate-limited caption download for v0 after 6 attempts (HTTP 429)"
+    )
+
+    service = SyncService(
+        repository=repository,
+        channel_client=channel_client,
+        transcript_client=transcript_client,
+    )
+    result = service.sync_channel("@council", max_videos=6)
+
+    # Three real attempts, then abort — remaining counted as errors without fetching.
+    assert transcript_client.fetch_transcript.call_count == 3
+    assert result.errors == 6
+    assert any("Stopped early" in msg for msg in (result.error_messages or []))
 
 
 def test_transcript_client_formats_text():
