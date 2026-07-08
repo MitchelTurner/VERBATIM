@@ -9,6 +9,7 @@
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
+  flex-wrap: wrap;
   margin-bottom: 2rem;
 }
 
@@ -169,6 +170,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .job-card h3 {
@@ -179,6 +181,11 @@
 .job-card .meta {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+/* Channel URLs and handles have no natural break points. */
+.meta {
+  overflow-wrap: anywhere;
 }
 
 .status {
@@ -253,6 +260,17 @@
   gap: 0.75rem;
   padding: 0.85rem 0;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.channel-item > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.channel-item .pill {
+  align-self: flex-start;
+  white-space: nowrap;
 }
 
 .channel-item:last-child {
@@ -313,6 +331,10 @@
   display: flex;
   gap: 0.5rem;
   margin-bottom: 1.25rem;
+}
+
+.tab-btn {
+  flex-shrink: 0;
 }
 
 .tab-btn {
@@ -486,6 +508,10 @@
   min-height: 420px;
 }
 
+.detail-header {
+  overflow-wrap: anywhere;
+}
+
 .detail-header h3 {
   margin: 0 0 0.35rem;
 }
@@ -507,4 +533,86 @@
   font-family: inherit;
   font-size: 0.92rem;
   line-height: 1.6;
+}
+
+/* Phone-width adjustments */
+@media (max-width: 600px) {
+  .app {
+    padding: 1.25rem 0.85rem 2rem;
+  }
+
+  .hero {
+    margin-bottom: 1.25rem;
+  }
+
+  .hero h1.brand-title,
+  .hero .brand-title {
+    font-size: 1.9rem;
+    letter-spacing: 0.12em;
+  }
+
+  .panel {
+    padding: 1rem;
+    border-radius: 14px;
+  }
+
+  /* Frequency / max-items side-by-side fields stack vertically. */
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Tabs and quick-start templates scroll horizontally instead of
+     overflowing the viewport. */
+  .tab-nav,
+  .template-row {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 0.25rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .template-row .meta,
+  .template-row .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* Comfortable full-width touch targets for card and form actions. */
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .actions .btn {
+    width: 100%;
+    padding: 0.8rem 0.5rem;
+  }
+
+  .stat-card {
+    padding: 0.7rem 0.5rem;
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+  }
+
+  .transcript-list {
+    max-height: 45vh;
+  }
+
+  .transcript-body {
+    max-height: 60vh;
+    padding: 0.8rem;
+  }
+
+  .transcript-detail {
+    min-height: 0;
+  }
+
+  .toast-stack {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+  }
 }
