@@ -42,6 +42,18 @@ def start_scheduler() -> BackgroundScheduler:
     return scheduler
 
 
+def _init_db_sync(database_url: str) -> tuple[TranscriptRepository, int]:
+    """Synchronous DB init — runs in a thread to avoid blocking the event loop."""
+    repository = TranscriptRepository(database_url)
+    repository.init_db()
+
+    with repository.session() as session:
+        recovered = SyncJobRepository().recover_interrupted_jobs(session)
+        session.commit()
+
+    return repository, recovered
+
+
 async def _initialize() -> None:
     """Retry DB connection until Postgres is reachable (common on Railway)."""
     global _scheduler
@@ -52,15 +64,10 @@ async def _initialize() -> None:
 
     for attempt in range(1, max_attempts + 1):
         try:
-            repository = TranscriptRepository(settings.database_url)
-            repository.init_db()
+            _repository, recovered = await asyncio.to_thread(
+                _init_db_sync, settings.database_url
+            )
 
-            # Jobs run in this process, so any job still marked "running" was
-            # interrupted by a crash/redeploy and must be reset before the
-            # scheduler starts, or it will be skipped on every poll forever.
-            with repository.session() as session:
-                recovered = SyncJobRepository().recover_interrupted_jobs(session)
-                session.commit()
             if recovered:
                 logger.info(
                     "Recovered %s sync job(s) interrupted by a previous shutdown",
