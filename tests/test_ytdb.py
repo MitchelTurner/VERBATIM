@@ -236,8 +236,8 @@ def test_sync_stops_early_after_repeated_rate_limits(mock_get_settings, reposito
     )
     result = service.sync_channel("@council", max_videos=6)
 
-    # Three real attempts, then abort — remaining counted as errors without fetching.
-    assert transcript_client.fetch_transcript.call_count == 3
+    # Two real attempts, then abort — remaining counted as errors without fetching.
+    assert transcript_client.fetch_transcript.call_count == 2
     assert result.errors == 6
     assert any("Stopped early" in msg for msg in (result.error_messages or []))
 
@@ -341,7 +341,7 @@ def test_transcript_client_retries_on_429_then_succeeds():
     with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=api):
         client = TranscriptClient(
             max_retries=3,
-            retry_base_delay=1.0,
+            retry_base_delay=5.0,
             sleep=sleeps.append,
         )
         result = client.fetch_transcript("cHzveGb-UPI")
@@ -349,7 +349,7 @@ def test_transcript_client_retries_on_429_then_succeeds():
     assert result is not None
     assert result.content == "hello"
     assert api.calls == 2
-    assert sleeps == [1.0]
+    assert sleeps == [5.0]
 
 
 def test_transcript_client_gives_up_after_429_retries():
@@ -364,14 +364,14 @@ def test_transcript_client_gives_up_after_429_retries():
     with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=Always429()):
         client = TranscriptClient(
             max_retries=2,
-            retry_base_delay=0.5,
+            retry_base_delay=5.0,
             sleep=sleeps.append,
         )
         with pytest.raises(TranscriptFetchError) as exc_info:
             client.fetch_transcript("cHzveGb-UPI")
 
     assert "rate-limited" in str(exc_info.value).lower() or "429" in str(exc_info.value)
-    assert sleeps == [0.5, 1.0]
+    assert sleeps == [5.0, 10.0]
 
 
 @patch("ytdb.sync.get_settings")
@@ -413,8 +413,7 @@ def test_sync_spaces_caption_downloads(mock_get_settings, repository):
 
 def test_build_proxy_config_prefers_webshare():
     from ytdb.config import Settings
-    from ytdb.youtube.transcripts import build_proxy_config
-    from youtube_transcript_api.proxies import WebshareProxyConfig
+    from ytdb.youtube.transcripts import RotatingWebshareProxyConfig, build_proxy_config
 
     settings = Settings(
         database_url="sqlite+pysqlite:///:memory:",
@@ -427,7 +426,12 @@ def test_build_proxy_config_prefers_webshare():
         youtube_https_proxy="http://other:proxy@host:8080",
     )
     config = build_proxy_config(settings)
-    assert isinstance(config, WebshareProxyConfig)
+    assert isinstance(config, RotatingWebshareProxyConfig)
+    assert config.retries_when_blocked == 0
+    assert "-session-" in config.url
+    rotated = config.with_new_session()
+    assert rotated.session_id != config.session_id
+    assert rotated.url != config.url
 
 
 def test_build_proxy_config_generic():
@@ -470,6 +474,62 @@ def test_transcript_client_uses_proxy_config():
         client = TranscriptClient(proxy_config=proxy)
         api_cls.assert_called_once_with(proxy_config=proxy)
         assert client._using_proxy is True
+
+
+def test_transcript_client_rotates_webshare_session_on_429():
+    from requests.exceptions import RetryError
+    from ytdb.youtube.transcripts import RotatingWebshareProxyConfig
+
+    class FakeSnippet:
+        def __init__(self, text):
+            self.text = text
+
+    class FakeFetched:
+        snippets = [FakeSnippet("hello")]
+
+    class FakeTranscript:
+        language = "English"
+        language_code = "en"
+        is_generated = True
+
+        def fetch(self):
+            return FakeFetched()
+
+    class FakeList:
+        def find_transcript(self, languages):
+            return FakeTranscript()
+
+        def find_generated_transcript(self, languages):
+            return FakeTranscript()
+
+        def __iter__(self):
+            return iter([FakeTranscript()])
+
+    class FlakyApi:
+        calls = 0
+
+        def list(self, video_id):
+            FlakyApi.calls += 1
+            if FlakyApi.calls == 1:
+                raise RetryError("too many 429 error responses")
+            return FakeList()
+
+    proxy = RotatingWebshareProxyConfig("user", "pass", session_id="aaaa")
+    sleeps: list[float] = []
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", side_effect=lambda **kwargs: FlakyApi()):
+        client = TranscriptClient(
+            proxy_config=proxy,
+            max_retries=2,
+            retry_base_delay=5.0,
+            sleep=sleeps.append,
+        )
+        first_session = client._proxy_config.session_id
+        result = client.fetch_transcript("cHzveGb-UPI")
+
+    assert result is not None
+    assert result.content == "hello"
+    assert sleeps == [5.0]
+    assert client._proxy_config.session_id != first_session
 
 
 @patch("ytdb.sync.get_settings")
