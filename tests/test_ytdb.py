@@ -428,10 +428,14 @@ def test_build_proxy_config_prefers_webshare():
     config = build_proxy_config(settings)
     assert isinstance(config, RotatingWebshareProxyConfig)
     assert config.retries_when_blocked == 0
-    assert "-session-" in config.url
-    rotated = config.with_new_session()
-    assert rotated.session_id != config.session_id
-    assert rotated.url != config.url
+    # Must match youtube-transcript-api's official Webshare URL shape.
+    assert config.url == "http://user-rotate:pass@p.webshare.io:80/"
+    # Trailing whitespace from env pastes must not break auth.
+    spaced = RotatingWebshareProxyConfig("user\n", " pass ")
+    assert spaced.url == "http://user-rotate:pass@p.webshare.io:80/"
+    # Username that already includes -rotate must not double it.
+    already = RotatingWebshareProxyConfig("user-rotate", "pass")
+    assert already.url == "http://user-rotate:pass@p.webshare.io:80/"
 
 
 def test_build_proxy_config_generic():
@@ -476,7 +480,7 @@ def test_transcript_client_uses_proxy_config():
         assert client._using_proxy is True
 
 
-def test_transcript_client_rotates_webshare_session_on_429():
+def test_transcript_client_rotates_http_client_on_429():
     from requests.exceptions import RetryError
     from ytdb.youtube.transcripts import RotatingWebshareProxyConfig
 
@@ -514,22 +518,48 @@ def test_transcript_client_rotates_webshare_session_on_429():
                 raise RetryError("too many 429 error responses")
             return FakeList()
 
-    proxy = RotatingWebshareProxyConfig("user", "pass", session_id="aaaa")
+    proxy = RotatingWebshareProxyConfig("user", "pass")
     sleeps: list[float] = []
-    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", side_effect=lambda **kwargs: FlakyApi()):
+    with patch(
+        "ytdb.youtube.transcripts.YouTubeTranscriptApi",
+        side_effect=lambda **kwargs: FlakyApi(),
+    ) as api_cls:
         client = TranscriptClient(
             proxy_config=proxy,
             max_retries=2,
             retry_base_delay=5.0,
             sleep=sleeps.append,
         )
-        first_session = client._proxy_config.session_id
         result = client.fetch_transcript("cHzveGb-UPI")
 
     assert result is not None
     assert result.content == "hello"
     assert sleeps == [5.0]
-    assert client._proxy_config.session_id != first_session
+    # Initial client + one rotation after the 429.
+    assert api_cls.call_count == 2
+
+
+def test_transcript_client_surfaces_proxy_407_clearly():
+    from requests.exceptions import ProxyError
+    from ytdb.youtube.transcripts import TranscriptFetchError
+
+    class AuthFailApi:
+        def list(self, video_id):
+            raise ProxyError(
+                "HTTPSConnectionPool(host='www.youtube.com', port=443): "
+                "Max retries exceeded with url: /watch?v=cHzveGb-UPI "
+                "(Caused by ProxyError('Unable to connect to proxy', "
+                "OSError('Tunnel connection failed: 407 Proxy Authentication Required')))"
+            )
+
+    with patch("ytdb.youtube.transcripts.YouTubeTranscriptApi", return_value=AuthFailApi()):
+        client = TranscriptClient(max_retries=2, sleep=lambda _: None)
+        with pytest.raises(TranscriptFetchError) as exc_info:
+            client.fetch_transcript("cHzveGb-UPI")
+
+    message = str(exc_info.value)
+    assert "407" in message or "Proxy Authentication" in message
+    assert "WEBSHARE_PROXY_USERNAME" in message
 
 
 @patch("ytdb.sync.get_settings")

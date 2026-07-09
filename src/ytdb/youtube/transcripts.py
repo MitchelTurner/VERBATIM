@@ -12,21 +12,19 @@ the path recommended by youtube-transcript-api — so caption requests leave
 from a non-datacenter IP.
 
 Even with a proxy, YouTube rate-limits (HTTP 429) when captions are fetched
-too quickly. This client backs off and retries on 429s with a fresh proxy
-session each attempt (so Webshare rotates to a new residential IP), and
-SyncService spaces downloads with ``YOUTUBE_CAPTION_DELAY``.
+too quickly. This client backs off and retries on 429s with a fresh HTTP
+client each attempt (Webshare ``-rotate`` then assigns a new residential
+IP), and SyncService spaces downloads with ``YOUTUBE_CAPTION_DELAY``.
 """
 from __future__ import annotations
 
 import logging
 import time
-import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from requests.exceptions import RetryError
+from requests.exceptions import ProxyError, RetryError
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     AgeRestricted,
@@ -54,12 +52,28 @@ _SKIP_ERRORS = (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound, AgeRes
 _BLOCK_ERRORS = (RequestBlocked, IpBlocked, PoTokenRequired, YouTubeRequestFailed)
 
 # Transient transport failures that often wrap HTTP 429 from YouTube.
-_RETRYABLE_ERRORS = (RetryError, RequestsConnectionError, YouTubeRequestFailed)
+# ProxyError is included so a flaky proxy hop can be retried with a fresh
+# client; persistent 407 auth failures are detected separately.
+_RETRYABLE_ERRORS = (
+    RetryError,
+    RequestsConnectionError,
+    YouTubeRequestFailed,
+    ProxyError,
+)
 
 _PROXY_HINT = (
     "YouTube is blocking this host's IP (common on Railway/cloud). "
     "Set WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD "
     "(or YOUTUBE_HTTPS_PROXY) to a residential proxy, then re-run the sync."
+)
+
+_PROXY_AUTH_HINT = (
+    "Webshare returned 407 Proxy Authentication Required. "
+    "Check WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD match the "
+    "Proxy Username and Proxy Password on "
+    "https://dashboard.webshare.io/proxy/settings (Residential plan, not "
+    "Proxy Server / Static Residential). Do not append -rotate yourself — "
+    "the app adds it."
 )
 
 
@@ -76,13 +90,16 @@ class TranscriptData:
 
 
 class RotatingWebshareProxyConfig(ProxyConfig):
-    """Webshare rotating residential proxy with a unique session per client.
+    """Official Webshare rotating residential auth, without urllib3 429 spam.
 
-    youtube-transcript-api's default Webshare config turns on urllib3 retries
-    for HTTP 429 with no backoff, which burns the same proxy IP in milliseconds
-    and surfaces as ``too many 429 error responses``. We disable those instant
-    retries and instead rotate the Webshare session id ourselves between
-    attempts so each retry leaves from a different residential IP.
+    Uses the same ``username-rotate:password@p.webshare.io`` URL format as
+    youtube-transcript-api's ``WebshareProxyConfig`` (custom ``-session-``
+    usernames caused 407 Proxy Authentication Required).
+
+    ``retries_when_blocked`` is 0 so urllib3 does not instantly re-hit 429s
+    on the same TCP connection. Rotation happens by opening a new
+    ``YouTubeTranscriptApi`` / Session after each backoff — with
+    ``Connection: close`` and ``-rotate``, Webshare assigns a new IP.
     """
 
     def __init__(
@@ -90,42 +107,34 @@ class RotatingWebshareProxyConfig(ProxyConfig):
         proxy_username: str,
         proxy_password: str,
         *,
-        session_id: str | None = None,
         filter_ip_locations: list[str] | None = None,
         domain_name: str = WebshareProxyConfig.DEFAULT_DOMAIN_NAME,
         proxy_port: int = WebshareProxyConfig.DEFAULT_PORT,
     ) -> None:
-        self.proxy_username = proxy_username
-        self.proxy_password = proxy_password
-        self.session_id = session_id or uuid.uuid4().hex[:12]
-        self._filter_ip_locations = filter_ip_locations or []
+        # Strip whitespace — Railway/env pastes often include trailing newlines
+        # that silently break proxy auth (407).
+        self.proxy_username = proxy_username.strip()
+        self.proxy_password = proxy_password.strip()
+        self._filter_ip_locations = [
+            code.strip() for code in (filter_ip_locations or []) if code.strip()
+        ]
         self.domain_name = domain_name
         self.proxy_port = proxy_port
 
-    def with_new_session(self) -> RotatingWebshareProxyConfig:
-        return RotatingWebshareProxyConfig(
-            proxy_username=self.proxy_username,
-            proxy_password=self.proxy_password,
-            session_id=uuid.uuid4().hex[:12],
-            filter_ip_locations=list(self._filter_ip_locations),
-            domain_name=self.domain_name,
-            proxy_port=self.proxy_port,
-        )
-
     @property
     def url(self) -> str:
+        # Match youtube-transcript-api's WebshareProxyConfig exactly.
         location_codes = "".join(
             f"-{location_code.upper()}" for location_code in self._filter_ip_locations
         )
         username = self.proxy_username
-        for suffix in ("-rotate",):
-            if username.endswith(suffix):
-                username = username[: -len(suffix)]
-        # session-<id> forces Webshare onto a distinct sticky IP; a new id
-        # on each retry is how we rotate after a 429.
-        user = f"{username}{location_codes}-session-{self.session_id}"
-        password = quote(self.proxy_password, safe="")
-        return f"http://{quote(user, safe='')}:{password}@{self.domain_name}:{self.proxy_port}/"
+        suffix = "-rotate"
+        if username.endswith(suffix):
+            username = username[: -len(suffix)]
+        return (
+            f"http://{username}{location_codes}{suffix}:{self.proxy_password}"
+            f"@{self.domain_name}:{self.proxy_port}/"
+        )
 
     def to_requests_dict(self) -> dict[str, str]:
         return {"http": self.url, "https": self.url}
@@ -175,6 +184,19 @@ def is_rate_limited(exc: BaseException) -> bool:
     return False
 
 
+def is_proxy_auth_error(exc: BaseException) -> bool:
+    """True when the proxy rejected credentials (HTTP 407)."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(current).lower()
+        if "407" in text or "proxy authentication required" in text:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 # Backwards-compatible alias used by older imports/tests.
 _is_rate_limited = is_rate_limited
 
@@ -216,13 +238,9 @@ class TranscriptClient:
         return YouTubeTranscriptApi(proxy_config=self._proxy_config)
 
     def _rotate_proxy_session(self) -> None:
-        """Open a fresh HTTP client, optionally on a new Webshare session/IP."""
-        if isinstance(self._proxy_config, RotatingWebshareProxyConfig):
-            self._proxy_config = self._proxy_config.with_new_session()
-            logger.info(
-                "Rotated Webshare proxy session to %s", self._proxy_config.session_id
-            )
+        """Open a fresh HTTP client so Webshare ``-rotate`` assigns a new IP."""
         self._api = self._new_api()
+        logger.info("Opened a fresh caption HTTP client for proxy IP rotation")
 
     def fetch_transcript(self, video_id: str) -> TranscriptData | None:
         last_error: Exception | None = None
@@ -241,6 +259,11 @@ class TranscriptClient:
                     continue
                 raise TranscriptFetchError(self._block_message(video_id, exc)) from exc
             except _RETRYABLE_ERRORS as exc:
+                if is_proxy_auth_error(exc):
+                    raise TranscriptFetchError(
+                        f"Caption download failed for {video_id}: {_PROXY_AUTH_HINT} "
+                        f"Underlying error: {exc}"
+                    ) from exc
                 if is_rate_limited(exc) and attempt < attempts - 1:
                     last_error = exc
                     self._backoff(video_id, attempt, exc)
@@ -253,13 +276,22 @@ class TranscriptClient:
                         f"and re-run; if this keeps happening set "
                         f"YOUTUBE_CAPTION_DELAY=8. Last error: {exc}"
                     ) from exc
+                if attempt < attempts - 1:
+                    last_error = exc
+                    self._backoff(video_id, attempt, exc)
+                    self._rotate_proxy_session()
+                    continue
                 raise TranscriptFetchError(
                     f"Caption download failed for {video_id}: {exc}"
                 ) from exc
 
         if last_error is not None:
+            if is_rate_limited(last_error):
+                raise TranscriptFetchError(
+                    f"YouTube rate-limited caption download for {video_id}: {last_error}"
+                ) from last_error
             raise TranscriptFetchError(
-                f"YouTube rate-limited caption download for {video_id}: {last_error}"
+                f"Caption download failed for {video_id}: {last_error}"
             ) from last_error
         return None
 
@@ -286,7 +318,8 @@ class TranscriptClient:
         # on a fresh IP and for YouTube's short-lived 429 to clear.
         delay = min(60.0, self._retry_base_delay * (2**attempt))
         logger.warning(
-            "YouTube rate-limited %s (attempt %s/%s); sleeping %.1fs then rotating proxy — %s",
+            "Caption fetch failed for %s (attempt %s/%s); sleeping %.1fs then "
+            "opening a fresh proxy client — %s",
             video_id,
             attempt + 1,
             self._max_retries + 1,

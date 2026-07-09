@@ -309,7 +309,7 @@ YouTube blocks most cloud-provider IPs (Railway, Render, AWS, GCP, Azure). Chann
 **Fix:** route caption requests through a rotating **residential** proxy.
 
 1. Create a [Webshare](https://www.webshare.io/) account and buy a **Residential** package (not “Proxy Server” or “Static Residential”)
-2. Copy **Proxy Username** and **Proxy Password** from the [Webshare proxy settings](https://dashboard.webshare.io/proxy/settings)
+2. Copy **Proxy Username** and **Proxy Password** from the [Webshare proxy settings](https://dashboard.webshare.io/proxy/settings) — paste them exactly (no `-rotate` suffix; the app adds that)
 3. In Railway → your service → **Variables**, set:
    - `WEBSHARE_PROXY_USERNAME`
    - `WEBSHARE_PROXY_PASSWORD`
@@ -317,7 +317,9 @@ YouTube blocks most cloud-provider IPs (Railway, Render, AWS, GCP, Azure). Chann
 
 Alternatively set `YOUTUBE_HTTPS_PROXY` (and optionally `YOUTUBE_HTTP_PROXY`) to any `http://user:pass@host:port` residential proxy URL.
 
-If History shows `too many 429 error responses`, YouTube is rate-limiting caption fetches. The app spaces downloads (`YOUTUBE_CAPTION_DELAY`, default 5s), retries with backoff **and a fresh Webshare proxy IP each attempt**, cools down after 429s, stops early after repeated limits, and backfills missing transcripts on the next run. Wait a few minutes, then **Run now** again; raise `YOUTUBE_CAPTION_DELAY` to `8` if 429s continue. Also confirm your Webshare plan is **Residential** (rotating), not Proxy Server / Static Residential.
+If History shows `407 Proxy Authentication Required`, the Webshare username/password are wrong or whitespace-padded — re-copy them from the dashboard and redeploy.
+
+If History shows `too many 429 error responses`, YouTube is rate-limiting caption fetches. The app spaces downloads (`YOUTUBE_CAPTION_DELAY`, default 5s), retries with backoff **and a fresh proxy HTTP client each attempt**, cools down after 429s, stops early after repeated limits, and backfills missing transcripts on the next run. Wait a few minutes, then **Run now** again; raise `YOUTUBE_CAPTION_DELAY` to `8` if 429s continue. Also confirm your Webshare plan is **Residential** (rotating), not Proxy Server / Static Residential.
 
 Videos without transcripts are normal after a rate-limited run — the video row is saved (or was saved earlier) but captions failed. Re-running the job fills those gaps without needing Force refresh.
 
