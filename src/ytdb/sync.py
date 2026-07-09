@@ -49,11 +49,12 @@ class SyncService:
         )
         # Space caption downloads so a full sync does not trip YouTube 429s.
         try:
-            self._caption_delay = float(getattr(settings, "youtube_caption_delay", 2.5))
+            self._caption_delay = float(getattr(settings, "youtube_caption_delay", 5.0))
         except (TypeError, ValueError):
-            self._caption_delay = 2.5
+            self._caption_delay = 5.0
         self._fetched_this_run = 0
         self._consecutive_rate_limits = 0
+        self._cooldown_until = 0.0
 
     def sync_channel(
         self,
@@ -129,12 +130,23 @@ class SyncService:
                     logger.error("Caption fetch blocked for %s: %s", video_info.video_id, exc)
                     if is_rate_limited(exc):
                         self._consecutive_rate_limits += 1
+                        # Cool down before the next video; rotate proxy session
+                        # so the next attempt leaves from a different IP.
+                        self._cooldown_until = time.monotonic() + max(
+                            30.0, self._caption_delay * 4
+                        )
+                        rotate = getattr(
+                            self.transcript_client, "_rotate_proxy_session", None
+                        )
+                        if callable(rotate):
+                            rotate()
                         # Stop burning the proxy quota once YouTube is clearly
                         # rate-limiting; remaining videos stay for the next run.
-                        if self._consecutive_rate_limits >= 3:
+                        if self._consecutive_rate_limits >= 2:
                             abort_msg = (
                                 "Stopped early after repeated YouTube rate limits "
-                                "(HTTP 429). Re-run later to backfill the rest."
+                                "(HTTP 429). Wait a few minutes, then re-run to "
+                                "backfill the rest."
                             )
                             if abort_msg not in error_messages:
                                 error_messages.append(abort_msg)
@@ -211,8 +223,7 @@ class SyncService:
                 self.repository.upsert_video(session, channel, video_info)
                 return False
 
-        if self._fetched_this_run > 0 and self._caption_delay > 0:
-            time.sleep(self._caption_delay)
+        self._wait_before_fetch()
 
         try:
             transcript = self.transcript_client.fetch_transcript(video_info.video_id)
@@ -230,3 +241,14 @@ class SyncService:
 
         self.repository.upsert_transcript(session, video, transcript)
         return True
+
+    def _wait_before_fetch(self) -> None:
+        """Honor per-video delay plus any cooldown from a recent 429."""
+        now = time.monotonic()
+        wait_for = 0.0
+        if self._cooldown_until > now:
+            wait_for = self._cooldown_until - now
+        elif self._fetched_this_run > 0 and self._caption_delay > 0:
+            wait_for = self._caption_delay
+        if wait_for > 0:
+            time.sleep(wait_for)
